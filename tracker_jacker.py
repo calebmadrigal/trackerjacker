@@ -1,6 +1,7 @@
-# Track MAC Addresses using monitor mode
+# tracker-jacker
 
 import os
+import re
 import time
 import itertools
 import threading
@@ -11,7 +12,23 @@ from scapy.all import *
 DOT11_DATA_FRAME = 2
 
 
-class MacTracker:
+def get_supported_channels(iface):
+    iwlist_output = subprocess.check_output('iwlist wlan0mon freq', shell=True).decode()
+    lines = [line.strip() for line in iwlist_output.split('\n')]
+    channel_regex = re.compile(r'Channel\W+(\d+)')
+    channels = []
+    for line in lines:
+        m = re.search(channel_regex, line)
+        if m:
+            c = m.groups()[0]
+            channels.append(c)
+
+    # '06' -> '6', and sort
+    channels = [str(i) for i in sorted(list(set([int(chan) for chan in channels])))]
+    return channels
+
+
+class TrackerJacker:
     def __init__(self, macs_to_watch,
                        iface='wlan0mon',
                        mac_name_map=None,
@@ -22,9 +39,11 @@ class MacTracker:
                        log_file='tracker_jacker.log',
                        ssid_log_file='ssids.txt',
                        mac_log_file='macs_seen.txt',
-                       channels_to_monitor=(1, 6, 11),
-                       time_per_channel=3,
+                       channels_to_monitor=None,
+                       channel_switch_scheme='traffic_based',
+                       time_per_channel=2,
                        display_packets=False):
+
 
         # If 'mon' is in the interface name, assume it's already in interface mode
         # Otherwise, enable monitor mode and call monitor iface name iface + 'mon'
@@ -35,9 +54,20 @@ class MacTracker:
             print('Assuming iface is already in monitor mode...')
         else:
             self.original_iface_name = iface
-            print('Turning on monitor mode for {}'.format(iface))
-            self.iface = monitor_mode_control.monitor_mode_on(iface)
+            try:
+                self.iface = monitor_mode_control.monitor_mode_on(iface)
+            except Exception:
+                print('Interface not found: {}'.format(iface))
+                sys.exit(1)
             print('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
+
+        # Find supported channels
+        self.supported_channels = get_supported_channels(self.iface)
+        if len(self.supported_channels) == 0:
+            print('Interface not found: {}'.format(self.iface))
+            sys.exit(2)
+
+        print('Supported channels: {}'.format(self.supported_channels))
 
         # Scapy represents MAC as lowercase
         self.macs_to_watch = set([mac.lower() for mac in macs_to_watch])
@@ -50,7 +80,6 @@ class MacTracker:
         self.log_file = log_file
         self.ssid_log_file= ssid_log_file
         self.mac_log_file = mac_log_file
-        self.channels_to_monitor = channels_to_monitor
         self.time_per_channel = time_per_channel
         self.display_packets = display_packets
 
@@ -82,21 +111,79 @@ class MacTracker:
         self.packet_lens_lock = threading.Lock()
         self.last_alerted = {}
         self.last_channel_switch_time = 0
-        self.current_channel = self.channels_to_monitor[0]
+
+        if channels_to_monitor:
+            self.channels_to_monitor = channels_to_monitor
+            self.current_channel = self.channels_to_monitor[0]
+        else:
+            self.channels_to_monitor = self.supported_channels
+            self.current_channel = self.supported_channels[0]
+
+        self.channel_switch_func = self.switch_channel_based_on_traffic
+
+        if channel_switch_scheme == 'traffic_based':
+            self.channel_switch_func = self.switch_channel_based_on_traffic
+        elif channel_switch_scheme == 'round_robin':
+            self.channel_switch_func = self.switch_channel_round_robin
+
+        # Start with a high count for each channel, so each channel is more likely to be tried
+        # at least once before having the true count for it set
+        self.msgs_per_channel = {c: 100000 for c in self.channels_to_monitor}
+        self.num_msgs_received_this_channel = 0
+        self.channel_switch_scheme = channel_switch_scheme
+
         self.switch_to_channel(self.current_channel)
 
-    def switch_channels_if_time(self):
-        if time.time() - self.last_channel_switch_time > self.time_per_channel:
-            chans = self.channels_to_monitor
-            next_channel = chans[(chans.index(self.current_channel)+1) % len(chans)]
-            self.switch_to_channel(next_channel)
+        # Start channel switcher thread
+        self.channel_switcher_thread()
 
-            self.current_channel = next_channel
+    def channel_switcher_thread(self, firethread=True):
+        if firethread:
+            t = threading.Thread(target=self.channel_switcher_thread, args=(False,))
+            t.daemon = True
+            t.start()
+            return t
+
+        while True:
+            print('Time to switch channels...')
+            self.channel_switch_func()
             self.last_channel_switch_time = time.time()
+            time.sleep(self.time_per_channel)
+
+    def get_next_channel_based_on_traffic(self):
+        total_count = sum((count for channel, count in self.msgs_per_channel.items()))
+        percent_to_channel = {count/total_count: channel for channel, count in self.msgs_per_channel.items()}
+
+        percent_sum = 0
+        sum_to_reach = random.random()
+        for percent, channel in percent_to_channel.items():
+            percent_sum += percent
+            if percent_sum >= sum_to_reach:
+                return channel
+
+        return random.sample(self.channels_to_monitor, 1)[0]
+
+    def switch_channel_based_on_traffic(self):
+        next_channel = self.get_next_channel_based_on_traffic()
+
+        # Don't ever set a channel to a 0% probability of being hit again
+        if self.num_msgs_received_this_channel == 0:
+            self.num_msgs_received_this_channel = min(self.msgs_per_channel.values())
+
+        self.msgs_per_channel[self.current_channel] = self.num_msgs_received_this_channel
+        print('Messages received on this channel: {}'.format(self.num_msgs_received_this_channel))
+        self.num_msgs_received_this_channel = 0
+        self.switch_to_channel(next_channel)
+
+    def switch_channel_round_robin(self):
+        chans = self.channels_to_monitor
+        next_channel = chans[(chans.index(self.current_channel)+1) % len(chans)]
+        self.switch_to_channel(next_channel)
 
     def switch_to_channel(self, channel_num):
         print('Switching to channel {}'.format(channel_num))
         subprocess.call('iw dev {} set channel {}'.format(self.iface, channel_num), shell=True)
+        self.current_channel = channel_num
 
     def get_packet_lens(self, mac):
         if mac not in self.packet_lens:
@@ -142,7 +229,11 @@ class MacTracker:
 
     def process_packet(self, pkt):
         if pkt.haslayer(Dot11):
+            if self.display_packets:
+                print('\t', pkt.summary())
+
             macs_in_pkt = set([pkt[Dot11].addr1, pkt[Dot11].addr2, pkt[Dot11].addr3, pkt[Dot11].addr4])
+            self.num_msgs_received_this_channel += 1
 
             if self.alert_new_macs:
                 self.check_for_unseen_macs(macs_in_pkt)
@@ -153,15 +244,10 @@ class MacTracker:
             # See if any MACs we care about are here
             matched_macs = self.macs_to_watch & macs_in_pkt
             if matched_macs:
-                if self.display_packets:
-                    print('\t', pkt.summary())
-
                 with self.packet_lens_lock:
                     for mac in matched_macs:
                         packet_lens = self.get_packet_lens(mac)
                         packet_lens.append((time.time(), len(pkt)))
-
-        self.switch_channels_if_time()
 
     def sound_alarm(self, beeps=5):
         for i in range(beeps):
@@ -208,11 +294,14 @@ class MacTracker:
 
 if __name__ == '__main__':
     mac_name_map = {'30:8C:FB:86:CD:20': "Dropcam"}
+    iface = 'wlan0mon'
 
-    motion_detector = MacTracker(list(mac_name_map.keys()), mac_name_map=mac_name_map, iface='wlan0', data_threshold=10000, display_packets=False)
+    tracker_jacker = TrackerJacker(list(mac_name_map.keys()), mac_name_map=mac_name_map, iface=iface, data_threshold=10000, display_packets=True)
 
     try:
-        motion_detector.start()
+        tracker_jacker.start()
+    except KeyboardInterrupt:
+        print('Stopping...')
     finally:
-        motion_detector.stop()
+        tracker_jacker.stop()
 

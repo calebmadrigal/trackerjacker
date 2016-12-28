@@ -6,14 +6,56 @@ import time
 import itertools
 import threading
 import datetime
-import monitor_mode_control
+import json
+import argparse
 from scapy.all import *
 
-DOT11_DATA_FRAME = 2
+
+def get_physical_name(iface_name):
+    physical_name= ''
+    with open('/sys/class/net/{}/phy80211/index'.format(iface_name, 'r')) as f:
+        physical_name = 'phy{}'.format(f.read().strip())
+    return physical_name
+
+
+def monitor_mode_on(iface):
+    physical_name = get_physical_name(iface)
+    mon_iface_name = '{}mon'.format(iface)
+    subprocess.check_call('iw phy {} interface add {} type monitor'.format(physical_name, mon_iface_name), shell=True)
+    subprocess.check_call('iw dev {} del'.format(iface), shell=True)
+    subprocess.check_call('ifconfig {} up'.format(mon_iface_name), shell=True)
+    return mon_iface_name
+
+
+def monitor_mode_off(iface):
+    # If someone passes in an interface like 'wlan0mon', assume it's the monitor name
+    if 'mon' in iface:
+        mon_iface_name = iface
+        iface = iface.replace('mon', '')
+    else:
+        mon_iface_name = '{}mon'.format(iface)
+
+    physical_name = get_physical_name(mon_iface_name)
+    subprocess.check_call('iw phy {} interface add {} type managed'.format(physical_name, iface), shell=True)
+    subprocess.check_call('iw dev {} del'.format(mon_iface_name), shell=True)
+    return mon_iface_name
+
+
+def find_mon_iface():
+    """ Returns any interfaces with 'mon' in their name. """
+    ifconfig_output = subprocess.check_output('ifconfig', shell=True).decode()
+    lines = [line for line in ifconfig_output.split('\n')]
+    for line in lines:
+        match = re.match(r'(\w+):', line)
+        if match:
+            iface = match.groups()[0]
+            if iface.find('mon') >= 0:
+                return iface
+    return None
 
 
 def get_supported_channels(iface):
-    iwlist_output = subprocess.check_output('iwlist wlan0mon freq', shell=True).decode()
+    iwlist_output = subprocess.check_output('iwlist {} freq'.format(iface), shell=True).decode()
     lines = [line.strip() for line in iwlist_output.split('\n')]
     channel_regex = re.compile(r'Channel\W+(\d+)')
     channels = []
@@ -29,21 +71,23 @@ def get_supported_channels(iface):
 
 
 class TrackerJacker:
-    def __init__(self, macs_to_watch,
-                       iface='wlan0mon',
-                       mac_name_map=None,
+    def __init__(self, iface='wlan0',
+                       devices_to_watch=(),
+                       aps_to_watch=(),
                        window_secs=10,
-                       data_threshold=1,
+                       alert_threshold=1,
+                       alert_cooldown=30,
                        alert_new_macs=True,
                        alert_new_ssids=True,
+                       alert_command=None,
                        log_file='tracker_jacker.log',
                        ssid_log_file='ssids.txt',
                        mac_log_file='macs_seen.txt',
                        channels_to_monitor=None,
                        channel_switch_scheme='traffic_based',
                        time_per_channel=2,
-                       display_packets=False):
-
+                       display_matching_packets=True,
+                       display_all_packets=False):
 
         # If 'mon' is in the interface name, assume it's already in interface mode
         # Otherwise, enable monitor mode and call monitor iface name iface + 'mon'
@@ -53,13 +97,22 @@ class TrackerJacker:
             self.original_iface_name = None
             print('Assuming iface is already in monitor mode...')
         else:
-            self.original_iface_name = iface
             try:
-                self.iface = monitor_mode_control.monitor_mode_on(iface)
+                self.iface = monitor_mode_on(iface)
+                self.original_iface_name = iface
+                print('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
             except Exception:
-                print('Interface not found: {}'.format(iface))
-                sys.exit(1)
-            print('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
+                # If we fail to find the specified (or default) interface, look to see if there is an
+                # interface with 'mon' in the name, and if so, try it.
+                print('Interface not found: {}; searching for valid monitor interface...'.format(iface))
+                mon_iface = find_mon_iface()
+                self.original_iface_name = None
+                if mon_iface:
+                    self.iface = mon_iface
+                    print('Going with interface: {}'.format(self.iface))
+                else:
+                    print('Could not find monitor interface')
+                    sys.exit(1)
 
         # Find supported channels
         self.supported_channels = get_supported_channels(self.iface)
@@ -69,19 +122,34 @@ class TrackerJacker:
 
         print('Supported channels: {}'.format(self.supported_channels))
 
-        # Scapy represents MAC as lowercase
-        self.macs_to_watch = set([mac.lower() for mac in macs_to_watch])
-        self.mac_name_map = {mac.lower(): name for (mac, name) in mac_name_map.items()} if mac_name_map else {}
+        # Convert devices_to_watch and aps_to_watch into more efficient/usable data structures
+        # Note that scapy represents MACs in lowercase
+        def lowercase_macs(config_dict):
+            if 'mac' in config_dict:
+                config_dict['mac'] = config_dict['mac'].lower()
+            elif 'bssid' in config_dict:
+                config_dict['bssid'] = config_dict['bssid'].lower()
+            return config_dict
+
+        self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
+        self.devices_to_watch_set = set([mac for mac in self.devices_to_watch.keys()])
+
+        self.aps_to_watch = {ap.pop('bssid').lower(): ap for ap in aps_to_watch if 'bssid' in ap}
+        self.aps_to_watch_set = set([bssid for bssid in self.aps_to_watch.keys()])
+        self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])
 
         self.window_secs = window_secs
-        self.data_threshold = data_threshold
+        self.alert_threshold = alert_threshold
+        self.alert_cooldown = alert_cooldown
         self.alert_new_macs = alert_new_macs
         self.alert_new_ssids = alert_new_ssids
+        self.alert_command = alert_command
         self.log_file = log_file
         self.ssid_log_file= ssid_log_file
         self.mac_log_file = mac_log_file
         self.time_per_channel = time_per_channel
-        self.display_packets = display_packets
+        self.display_matching_packets = display_matching_packets
+        self.display_all_packets = display_all_packets
 
         # If the mac log exists, assume each line in it is a MAC, and add it to the known MACs
         if os.path.exists(self.mac_log_file):
@@ -137,6 +205,12 @@ class TrackerJacker:
         # Start channel switcher thread
         self.channel_switcher_thread()
 
+    def get_threshold(self, mac):
+        if mac in self.devices_to_watch and 'threshold' in self.devices_to_watch[mac]:
+            return self.devices_to_watch[mac]['threshold']
+        else:
+            return self.alert_threshold
+
     def channel_switcher_thread(self, firethread=True):
         if firethread:
             t = threading.Thread(target=self.channel_switcher_thread, args=(False,))
@@ -145,7 +219,6 @@ class TrackerJacker:
             return t
 
         while True:
-            print('Time to switch channels...')
             self.channel_switch_func()
             self.last_channel_switch_time = time.time()
             time.sleep(self.time_per_channel)
@@ -171,7 +244,6 @@ class TrackerJacker:
             self.num_msgs_received_this_channel = min(self.msgs_per_channel.values())
 
         self.msgs_per_channel[self.current_channel] = self.num_msgs_received_this_channel
-        print('Messages received on this channel: {}'.format(self.num_msgs_received_this_channel))
         self.num_msgs_received_this_channel = 0
         self.switch_to_channel(next_channel)
 
@@ -217,7 +289,7 @@ class TrackerJacker:
         with open(self.mac_log_file, 'a') as f:
             f.write('{}\n'.format(mac))
 
-        self.sound_alarm(beeps=1)
+        self.do_alert(beeps=1)
 
     def new_ssid_found(self, ssid):
         print('A new SSID found: {}'.format(ssid))
@@ -225,11 +297,11 @@ class TrackerJacker:
         with open(self.ssid_log_file, 'a') as f:
             f.write('channel={}, ssid={}\n'.format(self.current_channel, ssid))
 
-        self.sound_alarm(beeps=1)
+        self.do_alert(beeps=1)
 
     def process_packet(self, pkt):
         if pkt.haslayer(Dot11):
-            if self.display_packets:
+            if self.display_all_packets:
                 print('\t', pkt.summary())
 
             macs_in_pkt = set([pkt[Dot11].addr1, pkt[Dot11].addr2, pkt[Dot11].addr3, pkt[Dot11].addr4])
@@ -242,40 +314,46 @@ class TrackerJacker:
                 self.check_for_unseen_ssids(pkt)
 
             # See if any MACs we care about are here
-            matched_macs = self.macs_to_watch & macs_in_pkt
+            matched_macs = self.devices_to_watch_set & macs_in_pkt
             if matched_macs:
+                if self.display_matching_packets and not self.display_all_packets:
+                    print('\t', pkt.summary())
+
                 with self.packet_lens_lock:
                     for mac in matched_macs:
                         packet_lens = self.get_packet_lens(mac)
                         packet_lens.append((time.time(), len(pkt)))
 
-    def sound_alarm(self, beeps=5):
+    def do_alert(self, beeps=5, thing_detected=None):
+        if self.alert_command:
+            subprocess.call(self.alert_command, shell=True)
+
         for i in range(beeps):
             print(chr(0x07))
             time.sleep(0.2)
 
-    def something_detected(self, mac):
-        # Only alert every 2 minutes
-        if time.time() - self.last_alerted.get(mac, 9999999) < 30:
+    def mac_of_interest_detected(self, mac):
+        if time.time() - self.last_alerted.get(mac, 9999999) < self.alert_cooldown:
             return
 
-        device_name = self.mac_name_map.get(mac, mac) # use device name, else use MAC
+        device_name = self.devices_to_watch[mac].get('name', mac)
 
-        msg = '{}: I see {}'.format(datetime.datetime.now(), device_name)
+        msg = '{}: Detected {}'.format(datetime.datetime.now(), device_name)
         print(msg)
         with open(self.log_file, 'a') as f:
             f.write(msg + '\n')
 
-        self.sound_alarm()
+        self.do_alert()
         self.last_alerted[mac] = time.time()
 
     def check_loop(self):
         while True:
-            for mac in self.macs_to_watch:
+            for mac in self.devices_to_watch_set:
                 bytes_received_in_time_window = self.get_bytes_in_time_window(mac)
-                print('Bytes received in last {} seconds for {}: {}'.format(self.window_secs, mac, bytes_received_in_time_window))
-                if bytes_received_in_time_window > self.data_threshold:
-                    self.something_detected(mac)
+                print('Bytes received in last {} seconds for {}: {}' \
+                      .format(self.window_secs, mac, bytes_received_in_time_window))
+                if bytes_received_in_time_window > self.get_threshold(mac):
+                    self.mac_of_interest_detected(mac)
 
             time.sleep(5)
 
@@ -289,14 +367,120 @@ class TrackerJacker:
 
     def stop(self):
         if self.original_iface_name:
-            monitor_mode_control.monitor_mode_off(self.iface)
+            monitor_mode_off(self.iface)
             print('Disabled monitor mode for interface: {}'.format(self.original_iface_name))
 
-if __name__ == '__main__':
-    mac_name_map = {'30:8C:FB:86:CD:20': "Dropcam"}
-    iface = 'wlan0mon'
 
-    tracker_jacker = TrackerJacker(list(mac_name_map.keys()), mac_name_map=mac_name_map, iface=iface, data_threshold=10000, display_packets=True)
+def get_config():
+    # Default config
+    config = {'iface': 'wlan0',
+              'devices_to_watch': [],
+              'aps_to_watch': [],
+              'window_secs': 10,
+              'alert_threshold': 1,
+              'alert_cooldown': 30,
+              'alert_new_macs': True,
+              'alert_new_ssids': True,
+              'alert_command': None,
+              'log_file': 'tracker_jacker.log',
+              'ssid_log_file': 'ssids_seen.txt',
+              'mac_log_file': 'macs_seen.txt',
+              'channels_to_monitor': None,
+              'channel_switch_scheme': 'traffic_based',
+              'time_per_channel': 2,
+              'display_matching_packets': True,
+              'display_all_packets': False,
+             }
+
+    default_config_str = ', '.join(['{} = {}'.format(k, v) for k, v in config.items()])
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--interface', type=str, dest='iface',
+                        help='Network interface to use')
+    parser.add_argument('-m', '--macs', type=str, dest='devices_to_watch',
+                        help='MAC(s) to track; comma separated for multiple')
+    parser.add_argument('-a', '--access-points', type=str, dest='aps_to_watch',
+                        help='Access point(s) to track - specified by BSSID; comma separated for multiple')
+    parser.add_argument('-t', '--threshold', type=int, dest='alert_threshold',
+                        help='Threshold of packets in time window which causes alert')
+    parser.add_argument('-w', '--time-window', type=int, dest='window_secs',
+                        help='Time window (in seconds) which alert threshold is applied to')
+    parser.add_argument('--alert-command', type=str, dest='alert_command',
+                        help='Command to execute upon alert')
+    parser.add_argument('--monitor-mode-on', dest='monitor_mode_on', nargs=1,
+                        help='Enables monitor mode on the specified interface')
+    parser.add_argument('--monitor-mode-off', dest='monitor_mode_off', nargs=1,
+                        help='Disables monitor mode on the specified interface')
+    parser.add_argument('-c', '--config', type=str, dest='config',
+                        help='Path to config json file; default config values: \n' + default_config_str)
+
+    # vars converts from namespace to dict
+    args = parser.parse_args()
+
+    if args.monitor_mode_on:
+        enable_iface = args.monitor_mode_on[0]
+        iface = monitor_mode_on(enable_iface)
+        print('Enabled monitor mode on {} as iface name: {}'.format(enable_iface, iface))
+        sys.exit(0)
+    elif args.monitor_mode_off:
+        disable_iface = args.monitor_mode_off[0]
+        iface = monitor_mode_off(disable_iface)
+        print('Disabled monitor mode on {}'.format(iface))
+        sys.exit(0)
+    
+    macs_from_config = []
+    aps_from_config = []
+
+    if args.config:
+        try:
+            with open(args.config) as f:
+                config_from_file = json.loads(f.read())
+
+            # If there are any keys defined in the config file not allowed, error out
+            invalid_keys = set(config_from_file.keys()) - set(config.keys())
+            if invalid_keys:
+                print('Invalid keys found in config file: {}'.format(invalid_keys))
+                sys.exit(1)
+
+            macs_from_config = [{'mac': dev} if type(dev)==str else dev
+                                for dev in config_from_file.pop('devices_to_watch', [])]
+            aps_from_config = [{'bssid': ap} if type(ap)==str else ap
+                                for ap in config_from_file.pop('aps_to_watch', [])]
+
+            config.update(config_from_file)
+            print('Loaded configuration from {}'.format(args.config))
+
+        except (FileNotFoundException, IOError, OSError) as e:
+            print('Error loading config file ({}): {}'.format(args.config, e))
+            sys.exit(1)
+
+    macs_from_args = []
+    aps_from_args = []
+
+    if args.devices_to_watch:
+        macs_from_args = [{'mac': mac} for mac in args.devices_to_watch.split(',')]
+    if args.aps_to_watch:
+        macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
+
+    config_from_args = vars(args)
+    config_from_args = {k:v for k,v in config_from_args.items()
+                        if v is not None and k not in ['config', 'devices_to_watch', 'aps_to_watch']}
+
+    # Config from args trumps everything
+    config.update(config_from_args)
+
+    config['devices_to_watch'] = macs_from_config + macs_from_args
+    config['aps_to_watch'] = aps_from_config + aps_from_args
+
+    import pprint
+    print('Config:')
+    pprint.pprint(config)
+
+    return config
+
+if __name__ == '__main__':
+    config = get_config()
+    tracker_jacker = TrackerJacker(**config)
 
     try:
         tracker_jacker.start()

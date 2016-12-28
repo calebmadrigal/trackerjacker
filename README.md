@@ -20,7 +20,8 @@ tracker-jacker is configured via a few command-line switches and/or a config fil
 usage: tracker_jacker.py [-h] [-i IFACE] [-m DEVICES_TO_WATCH]
                          [-a APS_TO_WATCH] [-t ALERT_THRESHOLD]
                          [-w WINDOW_SECS] [--alert-command ALERT_COMMAND]
-                         [-c CONFIG]
+                         [--monitor-mode-on MONITOR_MODE_ON]
+                         [--monitor-mode-off MONITOR_MODE_OFF] [-c CONFIG]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -38,16 +39,22 @@ optional arguments:
                         applied to
   --alert-command ALERT_COMMAND
                         Command to execute upon alert
+  --monitor-mode-on MONITOR_MODE_ON
+                        Enables monitor mode on the specified interface
+  --monitor-mode-off MONITOR_MODE_OFF
+                        Disables monitor mode on the specified interface
   -c CONFIG, --config CONFIG
                         Path to config json file; default config values:
-                        alert_new_macs = True, alert_cooldown = 30,
-                        ssid_log_file = ssids_seen.txt, aps_to_watch = [],
-                        channels_to_monitor = None, alert_new_ssids = True,
-                        mac_log_file = macs_seen.txt, time_per_channel = 2,
-                        display_packets = False, window_secs = 10, iface =
-                        wlan0, log_file = tracker_jacker.log,
-                        channel_switch_scheme = traffic_based, alert_threshold
-                        = 1, alert_command = None, devices_to_watch = []
+                        alert_threshold = 1, mac_log_file = macs_seen.txt,
+                        log_file = tracker_jacker.log, channel_switch_scheme =
+                        traffic_based, devices_to_watch = [], alert_command =
+                        None, iface = wlan0, alert_cooldown = 30, aps_to_watch
+                        = [], alert_new_ssids = True, time_per_channel = 2,
+                        display_all_packets = False, window_secs = 10,
+                        channels_to_monitor = None, alert_new_macs = True,
+                        display_matching_packets = True, ssid_log_file =
+                        ssids_seen.txt
+
 ```
 
 ### All config options (and their default values)

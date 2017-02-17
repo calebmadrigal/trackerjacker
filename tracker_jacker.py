@@ -1,4 +1,10 @@
-# tracker-jacker
+#!/usr/bin/env python3
+
+"""
+tracker-jacker
+
+Raw 802.11 frame interception tool.
+"""
 
 import os
 import re
@@ -9,6 +15,12 @@ import datetime
 import json
 import argparse
 from scapy.all import *
+
+__author__ = "Caleb Madrigal"
+__maintainer__ = "Caleb Madrigal"
+__email__ = "caleb.adrigal@gmail.com"
+__license__ = "MIT"
+__version__ = "0.0.1"
 
 
 def get_physical_name(iface_name):
@@ -68,6 +80,10 @@ def get_supported_channels(iface):
     # '06' -> '6', and sort
     channels = [str(i) for i in sorted(list(set([int(chan) for chan in channels])))]
     return channels
+
+
+def switch_to_channel(iface, channel_num):
+    subprocess.call('iw dev {} set channel {}'.format(iface, channel_num), shell=True)
 
 
 class TrackerJacker:
@@ -254,7 +270,7 @@ class TrackerJacker:
 
     def switch_to_channel(self, channel_num):
         print('Switching to channel {}'.format(channel_num))
-        subprocess.call('iw dev {} set channel {}'.format(self.iface, channel_num), shell=True)
+        switch_to_channel(self.iface, channel_num)
         self.current_channel = channel_num
 
     def get_packet_lens(self, mac):
@@ -407,26 +423,53 @@ def get_config():
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--alert-command', type=str, dest='alert_command',
                         help='Command to execute upon alert')
-    parser.add_argument('--monitor-mode-on', dest='monitor_mode_on', nargs=1,
+    parser.add_argument('--monitor-mode-on', action='store_true', dest='enable_monitor_mode',
                         help='Enables monitor mode on the specified interface')
-    parser.add_argument('--monitor-mode-off', dest='monitor_mode_off', nargs=1,
+    parser.add_argument('--monitor-mode-off', action='store_true', dest='disable_monitor_mode',
                         help='Disables monitor mode on the specified interface')
+    parser.add_argument('--set-channel', metavar='CHANNEL', dest='set_channel', nargs=1,
+                        help='Set the specified wireless interface to the specified channel')
     parser.add_argument('-c', '--config', type=str, dest='config',
                         help='Path to config json file; default config values: \n' + default_config_str)
 
     # vars converts from namespace to dict
     args = parser.parse_args()
 
-    if args.monitor_mode_on:
-        enable_iface = args.monitor_mode_on[0]
-        iface = monitor_mode_on(enable_iface)
-        print('Enabled monitor mode on {} as iface name: {}'.format(enable_iface, iface))
-        sys.exit(0)
-    elif args.monitor_mode_off:
-        disable_iface = args.monitor_mode_off[0]
-        iface = monitor_mode_off(disable_iface)
-        print('Disabled monitor mode on {}'.format(iface))
-        sys.exit(0)
+    if args.enable_monitor_mode:
+        if not args.iface:
+            print('You must specify the interface with the -i paramter')
+            sys.exit(1)
+        try:
+            result_iface = monitor_mode_on(args.iface)
+            print('Enabled monitor mode on {} as iface name: {}'.format(args.iface, result_iface))
+            sys.exit(0)
+        except FileNotFoundError:
+            print('Couldn\'t find requested interface: {}'.format(args.iface))
+            sys.exit(1)
+    elif args.disable_monitor_mode:
+        if not args.iface:
+            print('You must specify the interface with the -i paramter')
+            sys.exit(1)
+        try:
+            result_iface = monitor_mode_off(args.iface)
+            print('Disabled monitor mode on {}'.format(result_iface))
+            sys.exit(0)
+        except FileNotFoundError:
+            print('Couldn\'t find requested interface: {}'.format(args.iface))
+            sys.exit(1)
+    elif args.set_channel:
+        if not args.iface:
+            print('You must specify the interface with the -i paramter')
+            sys.exit(1)
+        try:
+            channel = args.set_channel[0]
+            switch_to_channel(args.iface, channel)
+            print('Set channel to {} on {}'.format(channel, args.iface))
+            sys.exit(0)
+        except FileNotFoundError:
+            print('Couldn\'t find requested interface: {}'.format(args.iface))
+            sys.exit(1)
+        
     
     macs_from_config = []
     aps_from_config = []

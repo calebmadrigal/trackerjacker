@@ -13,6 +13,7 @@ import itertools
 import threading
 import datetime
 import json
+import ast
 import argparse
 from scapy.all import *
 
@@ -183,8 +184,17 @@ class TrackerJacker:
         if os.path.exists(self.ssid_log_file):
             try:
                 with open(self.ssid_log_file, 'r') as f:
-                    self.seen_ssids = set([line.strip() for line in f.readlines()])
-                    print('Imported {} seen SSIDs'.format(len(self.seen_ssids)))
+                    lines = [line.strip() for line in f.readlines()]
+                ssids_seen_list = []
+                for line in lines:
+                    try:
+                        ssid_entry = ast.literal_eval(line)
+                        ssids_seen_list.append(ssid_entry['ssid'])
+                    except Exception:
+                        pass
+                self.seen_ssids = set(ssids_seen_list)
+                print('Imported {} seen SSIDs'.format(len(self.seen_ssids)))
+                print(self.seen_ssids)
             except Exception as e:
                 print('Failed to import SSIDs from file: {}'.format(e))
                 self.seen_ssids = set()
@@ -234,10 +244,12 @@ class TrackerJacker:
             t.start()
             return t
 
-        while True:
-            self.channel_switch_func()
-            self.last_channel_switch_time = time.time()
-            time.sleep(self.time_per_channel)
+        # Only worry about switching channels if we are monitoring 2 or more
+        if len(self.channels_to_monitor) > 1:
+            while True:
+                self.channel_switch_func()
+                self.last_channel_switch_time = time.time()
+                time.sleep(self.time_per_channel)
 
     def get_next_channel_based_on_traffic(self):
         total_count = sum((count for channel, count in self.msgs_per_channel.items()))
@@ -287,10 +299,11 @@ class TrackerJacker:
         return sum([i[1] for i in still_in_window])
 
     def check_for_unseen_ssids(self, frame):
-        if frame.haslayer(Dot11Elt):
-            ssid = frame[Dot11Elt].info
+        if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
+            ssid = frame[Dot11Elt].info.decode()
+            bssid = frame[Dot11].addr3
             if ssid and ssid not in self.seen_ssids:
-                self.new_ssid_found(ssid)
+                self.new_ssid_found(ssid, bssid)
                 self.seen_ssids |= set([ssid])
 
     def check_for_unseen_macs(self, macs_in_pkt):
@@ -307,11 +320,12 @@ class TrackerJacker:
 
         self.do_alert(beeps=1)
 
-    def new_ssid_found(self, ssid):
-        print('A new SSID found: {}'.format(ssid))
+    def new_ssid_found(self, ssid, bssid):
+        print('A new SSID: {}, BSSID: {}, Channel: {}'.format(ssid, bssid, self.current_channel))
 
         with open(self.ssid_log_file, 'a') as f:
-            f.write('channel={}, ssid={}\n'.format(self.current_channel, ssid))
+            # Note: I'm manually building the dict str repr in order to have the same order on every line
+            f.write("""{"ssid": "%s", "bssid": "%s", "channel": %d}\n""" % (ssid, bssid, int(self.current_channel)))
 
         self.do_alert(beeps=1)
 
@@ -322,6 +336,14 @@ class TrackerJacker:
 
             macs_in_pkt = set([pkt[Dot11].addr1, pkt[Dot11].addr2, pkt[Dot11].addr3, pkt[Dot11].addr4])
             self.num_msgs_received_this_channel += 1
+
+            if len(self.aps_to_watch) > 0:
+                matched_ap_bssid = self.aps_to_watch_set - self.macs_in_pkt
+                # If we're watching specific access points and we don't see any access points in this packet, skip it
+                if len(matched_ap_bssid) < 1:
+                    return
+                else:
+                    print('Packet matching AP: {}'.format(pkt.summary()))
 
             if self.alert_new_macs:
                 self.check_for_unseen_macs(macs_in_pkt)
@@ -417,12 +439,16 @@ def get_config():
                         help='MAC(s) to track; comma separated for multiple')
     parser.add_argument('-a', '--access-points', type=str, dest='aps_to_watch',
                         help='Access point(s) to track - specified by BSSID; comma separated for multiple')
+    parser.add_argument('--channels-to-monitor', type=str, dest='channels_to_monitor',
+                        help='Channels to monitor; comma separated for multiple')
     parser.add_argument('-t', '--threshold', type=int, dest='alert_threshold',
                         help='Threshold of packets in time window which causes alert')
     parser.add_argument('-w', '--time-window', type=int, dest='window_secs',
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--alert-command', type=str, dest='alert_command',
                         help='Command to execute upon alert')
+    parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
+                        help='If true, displays all packets matching filters')
     parser.add_argument('--monitor-mode-on', action='store_true', dest='enable_monitor_mode',
                         help='Enables monitor mode on the specified interface')
     parser.add_argument('--monitor-mode-off', action='store_true', dest='disable_monitor_mode',
@@ -505,15 +531,21 @@ def get_config():
     if args.aps_to_watch:
         macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
 
+    non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'enable_monitor_mode',
+                       'disable_monitor_mode', 'set_channel']
+
     config_from_args = vars(args)
     config_from_args = {k:v for k,v in config_from_args.items()
-                        if v is not None and k not in ['config', 'devices_to_watch', 'aps_to_watch']}
+                        if v is not None and k not in non_config_args}
 
     # Config from args trumps everything
     config.update(config_from_args)
 
     config['devices_to_watch'] = macs_from_config + macs_from_args
     config['aps_to_watch'] = aps_from_config + aps_from_args
+    if args.channels_to_monitor:
+        channels_to_monitor = args.channels_to_monitor.split(',')
+        config['channels_to_monitor'] = channels_to_monitor
 
     import pprint
     print('Config:')

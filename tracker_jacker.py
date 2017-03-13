@@ -15,6 +15,9 @@ import datetime
 import json
 import ast
 import argparse
+import pprint
+import logging
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
 
 __author__ = "Caleb Madrigal"
@@ -22,6 +25,25 @@ __maintainer__ = "Caleb Madrigal"
 __email__ = "caleb.adrigal@gmail.com"
 __license__ = "MIT"
 __version__ = "0.0.1"
+
+
+class MacVendorDB:
+    def __init__(self, oui_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'oui.txt')):
+        self.db = {}
+        with open(oui_file, 'r') as f:
+            for line in f.readlines():
+                mac, vendor = line.split('=', maxsplit=1)
+                self.db[mac] = vendor
+
+    def lookup(self, mac):
+        try:
+            oui_prefix = mac.upper().replace(':', '')[0:6]
+            if oui_prefix in self.db:
+                return self.db[oui_prefix]
+        except Exception:
+            pass
+
+        return None
 
 
 def get_physical_name(iface_name):
@@ -364,7 +386,8 @@ class TrackerJacker:
 
     def do_alert(self, beeps=5, thing_detected=None):
         if self.alert_command:
-            subprocess.call(self.alert_command, shell=True)
+            # Start alert_command in background process - fire and forget
+            subprocess.Popen(self.alert_command)
 
         for i in range(beeps):
             print(chr(0x07))
@@ -455,6 +478,10 @@ def get_config():
                         help='Disables monitor mode on the specified interface')
     parser.add_argument('--set-channel', metavar='CHANNEL', dest='set_channel', nargs=1,
                         help='Set the specified wireless interface to the specified channel')
+    parser.add_argument('--mac-lookup', type=str, dest='mac_lookup',
+                        help='Lookup the vendor of the specified MAC address and exit')
+    parser.add_argument('--print-default-config', action='store_true', dest='print_default_config',
+                        help='Print boilerplate config file')
     parser.add_argument('-c', '--config', type=str, dest='config',
                         help='Path to config json file; default config values: \n' + default_config_str)
 
@@ -483,6 +510,16 @@ def get_config():
         except FileNotFoundError:
             print('Couldn\'t find requested interface: {}'.format(args.iface))
             sys.exit(1)
+    elif args.mac_lookup:
+        vendor = MacVendorDB().lookup(args.mac_lookup)
+        if vendor:
+            print(vendor)
+        else:
+            print('Vendor for {} not found'.format(args.mac_lookup))
+        sys.exit(0)
+    elif args.print_default_config:
+        print(json.dumps(config, indent=4, sort_keys=True))
+        sys.exit(0)
     elif args.set_channel:
         if not args.iface:
             print('You must specify the interface with the -i paramter')
@@ -532,7 +569,7 @@ def get_config():
         macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
 
     non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'enable_monitor_mode',
-                       'disable_monitor_mode', 'set_channel']
+                       'disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
 
     config_from_args = vars(args)
     config_from_args = {k:v for k,v in config_from_args.items()
@@ -547,7 +584,6 @@ def get_config():
         channels_to_monitor = args.channels_to_monitor.split(',')
         config['channels_to_monitor'] = channels_to_monitor
 
-    import pprint
     print('Config:')
     pprint.pprint(config)
 

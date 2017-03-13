@@ -33,7 +33,7 @@ class MacVendorDB:
         with open(oui_file, 'r') as f:
             for line in f.readlines():
                 mac, vendor = line.split('=', maxsplit=1)
-                self.db[mac] = vendor
+                self.db[mac] = vendor.strip()
 
     def lookup(self, mac):
         try:
@@ -43,7 +43,7 @@ class MacVendorDB:
         except Exception:
             pass
 
-        return None
+        return ''
 
 
 def get_physical_name(iface_name):
@@ -189,39 +189,39 @@ class TrackerJacker:
         self.time_per_channel = time_per_channel
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
+        self.mac_vendor_db = MacVendorDB()
 
         # If the mac log exists, assume each line in it is a MAC, and add it to the known MACs
+        self.seen_macs = set()
         if os.path.exists(self.mac_log_file):
             try:
                 with open(self.mac_log_file, 'r') as f:
-                    self.seen_macs = set([line.strip() for line in f.readlines()])
+                    seen_macs_list = []
+                    for line in f.readlines():
+                        mac_entry = ast.literal_eval(line)
+                        seen_macs_list.append(mac_entry['mac'])
+                    self.seen_macs = set(seen_macs_list)
                     print('Imported {} seen MACs'.format(len(self.seen_macs)))
             except Exception as e:
                 print('Failed to import MACs from file: {}'.format(e))
-                self.seen_macs = set()
-        else:
-            self.seen_macs = set()
 
         # If the SSID log exists, assume each line in it is an SSID, and add it to the known SSIDs
+        self.seen_ssids = set()
         if os.path.exists(self.ssid_log_file):
             try:
                 with open(self.ssid_log_file, 'r') as f:
-                    lines = [line.strip() for line in f.readlines()]
-                ssids_seen_list = []
-                for line in lines:
-                    try:
-                        ssid_entry = ast.literal_eval(line)
-                        ssids_seen_list.append(ssid_entry['ssid'])
-                    except Exception:
-                        pass
-                self.seen_ssids = set(ssids_seen_list)
+                    ssids_seen_list = []
+                    for line in f.readlines():
+                        try:
+                            ssid_entry = ast.literal_eval(line.strip())
+                            ssids_seen_list.append(ssid_entry['ssid'])
+                        except Exception:
+                            pass
+                    self.seen_ssids = set(ssids_seen_list)
                 print('Imported {} seen SSIDs'.format(len(self.seen_ssids)))
                 print(self.seen_ssids)
             except Exception as e:
                 print('Failed to import SSIDs from file: {}'.format(e))
-                self.seen_ssids = set()
-        else:
-            self.seen_ssids = set()
 
         self.packet_lens = {}
         self.packet_lens_lock = threading.Lock()
@@ -338,7 +338,8 @@ class TrackerJacker:
         print('A new MAC found: {}'.format(mac))
 
         with open(self.mac_log_file, 'a') as f:
-            f.write('{}\n'.format(mac))
+            f.write("""{"mac": "%s", "vendor": "%s"}\n""" % (mac, self.mac_vendor_db.lookup(mac)))
+            
 
         self.do_alert(beeps=1)
 

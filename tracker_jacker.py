@@ -21,29 +21,9 @@ logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
 
 __author__ = "Caleb Madrigal"
-__maintainer__ = "Caleb Madrigal"
-__email__ = "caleb.adrigal@gmail.com"
+__email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.0.1"
-
-
-class MacVendorDB:
-    def __init__(self, oui_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'oui.txt')):
-        self.db = {}
-        with open(oui_file, 'r') as f:
-            for line in f.readlines():
-                mac, vendor = line.split('=', maxsplit=1)
-                self.db[mac] = vendor.strip()
-
-    def lookup(self, mac):
-        try:
-            oui_prefix = mac.upper().replace(':', '')[0:6]
-            if oui_prefix in self.db:
-                return self.db[oui_prefix]
-        except Exception:
-            pass
-
-        return ''
+__version__ = "0.0.2"
 
 
 def get_physical_name(iface_name):
@@ -109,11 +89,142 @@ def switch_to_channel(iface, channel_num):
     subprocess.call('iw dev {} set channel {}'.format(iface, channel_num), shell=True)
 
 
+class MacVendorDB:
+    def __init__(self, oui_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'oui.txt')):
+        self.db = {}
+        with open(oui_file, 'r') as f:
+            for line in f.readlines():
+                mac, vendor = line.split('=', maxsplit=1)
+                self.db[mac] = vendor.strip()
+
+    def lookup(self, mac):
+        try:
+            oui_prefix = mac.upper().replace(':', '')[0:6]
+            if oui_prefix in self.db:
+                return self.db[oui_prefix]
+        except Exception:
+            pass
+
+        return ''
+
+
+class Dot11Frame:
+    TO_DS = 0x1
+    FROM_DS = 0x2
+
+    def __init__(self, frame):
+        self.frame = frame
+        self.bssid = None
+        self.ssid = None
+
+        # DS = Distribution System; wired infrastructure connecting multiple BSSs to form an ESS
+        # Needed to determine the meanings of addr1-4
+        to_ds = frame.FCfield & Dot11Frame.TO_DS != 0
+        from_ds = frame.FCfield & Dot11Frame.FROM_DS != 0
+        if to_ds and from_ds:
+            self.dst = frame.addr3
+            self.src = frame.addr4
+            self.macs = (frame.addr1, frame.addr2, frame.addr3, frame.addr4)
+        elif to_ds:
+            self.src = frame.addr2
+            self.dst = frame.addr3
+            self.bssid = frame.addr1
+            self.macs = (frame.addr2, frame.addr3)
+        elif from_ds:
+            self.src = frame.addr3
+            self.dst = frame.addr1
+            self.bssid = frame.addr2
+            self.macs = (frame.addr1, frame.addr3)
+        else:
+            self.dst = frame.addr1
+            self.src = frame.addr2
+            self.bssid = frame.addr3
+            self.macs = (frame.addr1, frame.addr2)
+
+        if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
+            self.ssid = frame[Dot11Elt].info.decode()
+
+    def is_management(self):
+        return self.frame.type == 0
+
+    def is_control(self):
+        return self.frame.type == 1
+
+    def is_data(self):
+        return self.frame.type == 2
+
+    def __str__(self):
+        return 'Dot11 (type={}, from={}, to={}, bssid={}, ssid={})'.format(
+               self.frame.type, self.src, self.dst, self.bssid, self.ssid)
+
+
+class WifiMap:
+    """ Builds/represents a map of this structure:
+    {'chan_1': {
+        'bssid1': ['ssid_a', {'mac1', 'mac2', 'mac3'}],
+        'bssid2': ['ssid_a', {'mac1', 'mac4'}],
+        'bssid3': ['ssid_b', {'mac5', 'mac6'}],
+        'unassociated': [None, {'mac8', 'mac9', 'mac10'}]}
+     'chan_2':{
+        'bssid4': ['ssid_c', {'mac7'}],
+        'unassociated': [None, set()]},
+     'chan_3': {
+        'unassociated': [None, set()]}, ...  }
+    """
+    def __init__(self, file_path):
+        self.map_data = {}
+        self.file_path = file_path
+        if os.path.exists(file_path):
+            self.read_from_file()
+
+    def add_frame(self, channel, dot11_frame):
+        if channel not in self.map_data:
+            self.map_data[channel] = {'unassociated': [None, set()]}
+
+        chan_to_bssid = self.map_data[channel]
+
+        if dot11_frame.bssid:
+            if dot11_frame.bssid not in chan_to_bssid:
+                chan_to_bssid[dot11_frame.bssid] = [None, set()]
+            bssid_node = chan_to_bssid[dot11_frame.bssid]
+            # Associate ssid with bssid entry if no ssid has already been set
+            if not bssid_node[0]:
+                bssid_node[0] = dot11_frame.ssid
+        else:
+            bssid_node = chan_to_bssid['unassociated']
+
+        bssid_node[1] |= set(dot11_frame.macs)
+
+    def __str__(self):
+        serializable_repr = {}
+        for chan in self.map_data:
+            serializable_repr
+
+    def write_to_file(self):
+        with open(self.file_path, 'w') as f:
+            f.write('{\n')
+            for channel in sorted(self.map_data.keys()):
+                f.write('\t"{}": {{\n'.format(channel))
+                for bssid in sorted(self.map_data[channel]):
+                    f.write('\t\t"{}": ["{}", [\n'.format(bssid, self.map_data[channel][bssid][0]))
+                    for mac in sorted([i for i in self.map_data[channel][bssid][1] if i]):
+                        f.write('\t\t\t"{}",\n'.format(mac))
+                    f.write('\t\t]],\n')
+                f.write('\t}\n')
+            f.write('}\n')
+
+    def read_from_file(self):
+        pass
+
+
 class TrackerJacker:
     def __init__(self, iface='wlan0',
                        devices_to_watch=(),
                        aps_to_watch=(),
                        window_secs=10,
+                       do_map=True,
+                       map_file='wifi_map.txt',
+                       map_frequency=10,  # seconds
                        alert_threshold=1,
                        alert_cooldown=30,
                        alert_new_macs=True,
@@ -178,6 +289,11 @@ class TrackerJacker:
         self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])
 
         self.window_secs = window_secs
+        self.do_map = do_map
+        self.map_file = map_file
+        self.map_frequency = map_frequency
+        self.map_data = {}
+        self.map_last_write_time = 0
         self.alert_threshold = alert_threshold
         self.alert_cooldown = alert_cooldown
         self.alert_new_macs = alert_new_macs
@@ -320,13 +436,13 @@ class TrackerJacker:
             self.packet_lens[mac] = still_in_window
         return sum([i[1] for i in still_in_window])
 
-    def check_for_unseen_ssids(self, frame):
-        if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
-            ssid = frame[Dot11Elt].info.decode()
-            bssid = frame[Dot11].addr3
-            if ssid and ssid not in self.seen_ssids:
-                self.new_ssid_found(ssid, bssid)
-                self.seen_ssids |= set([ssid])
+    #def check_for_unseen_ssids(self, frame):
+    #    if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
+    #        ssid = frame[Dot11Elt].info.decode()
+    #        bssid = frame[Dot11].addr3
+    #        if ssid and ssid not in self.seen_ssids:
+    #            self.new_ssid_found(ssid, bssid)
+    #            self.seen_ssids |= set([ssid])
 
     def check_for_unseen_macs(self, macs_in_pkt):
         unseen_macs = (macs_in_pkt - set([None])) - self.seen_macs
@@ -338,8 +454,8 @@ class TrackerJacker:
         print('A new MAC found: {}'.format(mac))
 
         with open(self.mac_log_file, 'a') as f:
+            # Note: I'm manually building the dict str repr in order to have the same order on every line
             f.write("""{"mac": "%s", "vendor": "%s"}\n""" % (mac, self.mac_vendor_db.lookup(mac)))
-            
 
         self.do_alert(beeps=1)
 
@@ -354,25 +470,38 @@ class TrackerJacker:
 
     def process_packet(self, pkt):
         if pkt.haslayer(Dot11):
+            dot11_frame = Dot11Frame(pkt)
+
             if self.display_all_packets:
-                print('\t', pkt.summary())
+                print(dot11_frame)
+                #print('\t', pkt.summary())
 
             macs_in_pkt = set([pkt[Dot11].addr1, pkt[Dot11].addr2, pkt[Dot11].addr3, pkt[Dot11].addr4])
             self.num_msgs_received_this_channel += 1
 
+            #if self.do_map:
+            #    self.map_data[self.current_channel]
+
             if len(self.aps_to_watch) > 0:
-                matched_ap_bssid = self.aps_to_watch_set - self.macs_in_pkt
-                # If we're watching specific access points and we don't see any access points in this packet, skip it
-                if len(matched_ap_bssid) < 1:
-                    return
-                else:
+                if dot11_frame.bssid in self.aps_to_watch_set:
                     print('Packet matching AP: {}'.format(pkt.summary()))
+                else:
+                    return
+                #matched_ap_bssid = self.aps_to_watch_set - self.macs_in_pkt
+                # If we're watching specific access points and we don't see any access points in this packet, skip it
+                #if len(matched_ap_bssid) < 1:
+                #    return
+                #else:
+                #    print('Packet matching AP: {}'.format(pkt.summary()))
 
             if self.alert_new_macs:
                 self.check_for_unseen_macs(macs_in_pkt)
 
             if self.alert_new_ssids:
-                self.check_for_unseen_ssids(pkt)
+                if dot11_frame.ssid and dot11_frame.ssid not in self.seen_ssids:
+                    self.new_ssid_found(dot11_frame.ssid, dot11_frame.bssid)
+                    self.seen_ssids |= set([ssid])
+                #self.check_for_unseen_ssids(pkt)
 
             # See if any MACs we care about are here
             matched_macs = self.devices_to_watch_set & macs_in_pkt
@@ -439,6 +568,9 @@ def get_config():
               'devices_to_watch': [],
               'aps_to_watch': [],
               'window_secs': 10,
+              'do_map': True,
+              'map_file': 'wifi_map.txt',
+              'map_frequency': 10,
               'alert_threshold': 1,
               'alert_cooldown': 30,
               'alert_new_macs': True,
@@ -454,9 +586,22 @@ def get_config():
               'display_all_packets': False,
              }
 
-    default_config_str = ', '.join(['{} = {}'.format(k, v) for k, v in config.items()])
-
     parser = argparse.ArgumentParser()
+    # Modes
+    parser.add_argument('--map', action='store_true', dest='do_map',
+                        help='Map mode - output map to wifi_map.txt')
+    parser.add_argument('--monitor-mode-on', action='store_true', dest='do_enable_monitor_mode',
+                        help='Enables monitor mode on the specified interface and exit')
+    parser.add_argument('--monitor-mode-off', action='store_true', dest='do_disable_monitor_mode',
+                        help='Disables monitor mode on the specified interface and exit')
+    parser.add_argument('--set-channel', metavar='CHANNEL', dest='set_channel', nargs=1,
+                        help='Set the specified wireless interface to the specified channel and exit')
+    parser.add_argument('--mac-lookup', type=str, dest='mac_lookup',
+                        help='Lookup the vendor of the specified MAC address and exit')
+    parser.add_argument('--print-default-config', action='store_true', dest='print_default_config',
+                        help='Print boilerplate config file and exit')
+
+    # Normal switches
     parser.add_argument('-i', '--interface', type=str, dest='iface',
                         help='Network interface to use')
     parser.add_argument('-m', '--macs', type=str, dest='devices_to_watch',
@@ -473,23 +618,13 @@ def get_config():
                         help='Command to execute upon alert')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
                         help='If true, displays all packets matching filters')
-    parser.add_argument('--monitor-mode-on', action='store_true', dest='enable_monitor_mode',
-                        help='Enables monitor mode on the specified interface')
-    parser.add_argument('--monitor-mode-off', action='store_true', dest='disable_monitor_mode',
-                        help='Disables monitor mode on the specified interface')
-    parser.add_argument('--set-channel', metavar='CHANNEL', dest='set_channel', nargs=1,
-                        help='Set the specified wireless interface to the specified channel')
-    parser.add_argument('--mac-lookup', type=str, dest='mac_lookup',
-                        help='Lookup the vendor of the specified MAC address and exit')
-    parser.add_argument('--print-default-config', action='store_true', dest='print_default_config',
-                        help='Print boilerplate config file')
     parser.add_argument('-c', '--config', type=str, dest='config',
-                        help='Path to config json file; default config values: \n' + default_config_str)
+                        help='Path to config json file; For example config file, use --print-default-config')
 
     # vars converts from namespace to dict
     args = parser.parse_args()
 
-    if args.enable_monitor_mode:
+    if args.do_enable_monitor_mode:
         if not args.iface:
             print('You must specify the interface with the -i paramter')
             sys.exit(1)
@@ -500,7 +635,7 @@ def get_config():
         except FileNotFoundError:
             print('Couldn\'t find requested interface: {}'.format(args.iface))
             sys.exit(1)
-    elif args.disable_monitor_mode:
+    elif args.do_disable_monitor_mode:
         if not args.iface:
             print('You must specify the interface with the -i paramter')
             sys.exit(1)
@@ -533,6 +668,8 @@ def get_config():
         except FileNotFoundError:
             print('Couldn\'t find requested interface: {}'.format(args.iface))
             sys.exit(1)
+    elif args.do_map:
+        pass
         
     
     macs_from_config = []
@@ -569,8 +706,8 @@ def get_config():
     if args.aps_to_watch:
         macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
 
-    non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'enable_monitor_mode',
-                       'disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
+    non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
+                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup', 'do_map']
 
     config_from_args = vars(args)
     config_from_args = {k:v for k,v in config_from_args.items()

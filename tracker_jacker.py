@@ -23,7 +23,7 @@ from scapy.all import *
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 
 def get_physical_name(iface_name):
@@ -142,7 +142,7 @@ class Dot11Frame:
             self.macs = (frame.addr1, frame.addr2)
 
         if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
-            self.ssid = frame[Dot11Elt].info.decode()
+            self.ssid = frame[Dot11Elt].info.decode().replace('\x00', '')
 
     def is_management(self):
         return self.frame.type == 0
@@ -158,24 +158,34 @@ class Dot11Frame:
                self.frame.type, self.src, self.dst, self.bssid, self.ssid)
 
 
-class WifiMap:
-    """ Builds/represents a map of this structure:
-    {'chan_1': {
-        'bssid1': ['ssid_a', {'mac1', 'mac2', 'mac3'}],
-        'bssid2': ['ssid_a', {'mac1', 'mac4'}],
-        'bssid3': ['ssid_b', {'mac5', 'mac6'}],
-        'unassociated': [None, {'mac8', 'mac9', 'mac10'}]}
-     'chan_2':{
-        'bssid4': ['ssid_c', {'mac7'}],
-        'unassociated': [None, set()]},
-     'chan_3': {
-        'unassociated': [None, set()]}, ...  }
+class Dot11Map:
+    """ Builds/represents a map of this structure (and saves to yaml files):
+
+    1:  # channel
+      "90:35:ab:1c:25:19":  # bssid; Linksys
+        ssid: "hacker"
+        macs:
+          - "00:03:7f:84:f8:09"  # Dropcam
+          - "01:00:5e:00:00:fb"  # Apple
+      "unassociated":
+        macs:
+          - "34:23:ba:fd:5e:24"  # Sony
+          - "e8:50:8b:36:5e:bb"  # Unknown
+    5:  # channel
+      "34:89:ab:c4:15:69":  # bssid; 
+        ssid: "hello-world"
+        macs:
+          - "b8:27:eb:d6:cc:e9"  # Samsung
+          - "d8:49:2f:30:68:17"  # Apple
+      "unassociated":
+        macs:
+          - "34:23:ba:fd:5e:24"  # Unknown
     """
-    def __init__(self, file_path):
+    MACS_TO_IGNORE = ['ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00']
+
+    def __init__(self):
         self.map_data = {}
-        self.file_path = file_path
-        if os.path.exists(file_path):
-            self.read_from_file()
+        self.mac_vendor_db = MacVendorDB()
 
     def add_frame(self, channel, dot11_frame):
         if channel not in self.map_data:
@@ -183,38 +193,53 @@ class WifiMap:
 
         chan_to_bssid = self.map_data[channel]
 
-        if dot11_frame.bssid:
+        macs_in_frame = (set(dot11_frame.macs) - set(Dot11Map.MACS_TO_IGNORE + [dot11_frame.bssid]))
+
+        if dot11_frame.bssid and dot11_frame.bssid not in Dot11Map.MACS_TO_IGNORE:
             if dot11_frame.bssid not in chan_to_bssid:
                 chan_to_bssid[dot11_frame.bssid] = [None, set()]
             bssid_node = chan_to_bssid[dot11_frame.bssid]
             # Associate ssid with bssid entry if no ssid has already been set
             if not bssid_node[0]:
                 bssid_node[0] = dot11_frame.ssid
+            self.delete_from_unassociated(macs_in_frame)
         else:
             bssid_node = chan_to_bssid['unassociated']
 
-        bssid_node[1] |= set(dot11_frame.macs)
+        bssid_node[1] |= macs_in_frame
 
-    def __str__(self):
-        serializable_repr = {}
-        for chan in self.map_data:
-            serializable_repr
+    def delete_from_unassociated(self, macs_to_remove):
+        for channel in self.map_data:
+            unassociated_node = self.map_data[channel]['unassociated']
+            unassociated_node[1] = unassociated_node[1] - macs_to_remove
 
-    def write_to_file(self):
-        with open(self.file_path, 'w') as f:
-            f.write('{\n')
-            for channel in sorted(self.map_data.keys()):
-                f.write('\t"{}": {{\n'.format(channel))
+    def save_to_file(self, file_path):
+        """ Save to YAML file. Note that we manually write yaml to keep sorted ordering. """
+        with open(file_path, 'w') as f:
+            f.write('# tracker-jacker map file\n')
+            for channel in [str(i) for i in sorted([int(chan) for chan in self.map_data])]:
+                f.write('{}:  # channel\n'.format(channel))
                 for bssid in sorted(self.map_data[channel]):
-                    f.write('\t\t"{}": ["{}", [\n'.format(bssid, self.map_data[channel][bssid][0]))
+                    bssid_vendor = self.mac_vendor_db.lookup(bssid)
+                    f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
+                    # Wrote SSID if it exists for this SSID
+                    ssid = self.map_data[channel][bssid][0]
+                    if ssid:
+                        f.write('    ssid: "{}"\n'.format(ssid))
+                    f.write('    macs:\n')
                     for mac in sorted([i for i in self.map_data[channel][bssid][1] if i]):
-                        f.write('\t\t\t"{}",\n'.format(mac))
-                    f.write('\t\t]],\n')
-                f.write('\t}\n')
-            f.write('}\n')
+                        mac_vendor = self.mac_vendor_db.lookup(mac)
+                        if mac_vendor == '':
+                            mac_vendor = "Unknown"
+                        f.write('      - "{}"  # {}\n'.format(mac, mac_vendor))
 
-    def read_from_file(self):
-        pass
+    def load_from_file(self, file_path):
+        """ Load from YAML file. """
+        import yaml
+        with open(file_path, 'r') as f:
+            loaded_map = yaml.load(f.read())
+        self.map_data = loaded_map
+        return loaded_map
 
 
 class TrackerJacker:
@@ -223,8 +248,8 @@ class TrackerJacker:
                        aps_to_watch=(),
                        window_secs=10,
                        do_map=True,
-                       map_file='wifi_map.txt',
-                       map_frequency=10,  # seconds
+                       map_file='wifi_map.yaml',
+                       map_save_period=10,  # seconds
                        alert_threshold=1,
                        alert_cooldown=30,
                        alert_new_macs=True,
@@ -272,15 +297,6 @@ class TrackerJacker:
 
         print('Supported channels: {}'.format(self.supported_channels))
 
-        # Convert devices_to_watch and aps_to_watch into more efficient/usable data structures
-        # Note that scapy represents MACs in lowercase
-        def lowercase_macs(config_dict):
-            if 'mac' in config_dict:
-                config_dict['mac'] = config_dict['mac'].lower()
-            elif 'bssid' in config_dict:
-                config_dict['bssid'] = config_dict['bssid'].lower()
-            return config_dict
-
         self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
         self.devices_to_watch_set = set([mac for mac in self.devices_to_watch.keys()])
 
@@ -291,7 +307,7 @@ class TrackerJacker:
         self.window_secs = window_secs
         self.do_map = do_map
         self.map_file = map_file
-        self.map_frequency = map_frequency
+        self.map_save_period = map_save_period
         self.map_data = {}
         self.map_last_write_time = 0
         self.alert_threshold = alert_threshold
@@ -338,6 +354,13 @@ class TrackerJacker:
                 print(self.seen_ssids)
             except Exception as e:
                 print('Failed to import SSIDs from file: {}'.format(e))
+
+        # Mapping stuff
+        if self.do_map:
+            self.dot11_map = Dot11Map()
+            if os.path.exists(self.map_file):
+                self.dot11_map.load_from_file(self.map_file)
+            self.map_last_save = time.time()
 
         self.packet_lens = {}
         self.packet_lens_lock = threading.Lock()
@@ -436,14 +459,6 @@ class TrackerJacker:
             self.packet_lens[mac] = still_in_window
         return sum([i[1] for i in still_in_window])
 
-    #def check_for_unseen_ssids(self, frame):
-    #    if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
-    #        ssid = frame[Dot11Elt].info.decode()
-    #        bssid = frame[Dot11].addr3
-    #        if ssid and ssid not in self.seen_ssids:
-    #            self.new_ssid_found(ssid, bssid)
-    #            self.seen_ssids |= set([ssid])
-
     def check_for_unseen_macs(self, macs_in_pkt):
         unseen_macs = (macs_in_pkt - set([None])) - self.seen_macs
         for mac in unseen_macs:
@@ -474,25 +489,21 @@ class TrackerJacker:
 
             if self.display_all_packets:
                 print(dot11_frame)
-                #print('\t', pkt.summary())
 
             macs_in_pkt = set([pkt[Dot11].addr1, pkt[Dot11].addr2, pkt[Dot11].addr3, pkt[Dot11].addr4])
             self.num_msgs_received_this_channel += 1
 
-            #if self.do_map:
-            #    self.map_data[self.current_channel]
+            if self.do_map:
+                self.dot11_map.add_frame(self.current_channel, dot11_frame)
+                if time.time() - self.map_last_save >= self.map_save_period:
+                    self.dot11_map.save_to_file(self.map_file)
+                    self.map_last_save = time.time()
 
             if len(self.aps_to_watch) > 0:
                 if dot11_frame.bssid in self.aps_to_watch_set:
                     print('Packet matching AP: {}'.format(pkt.summary()))
                 else:
                     return
-                #matched_ap_bssid = self.aps_to_watch_set - self.macs_in_pkt
-                # If we're watching specific access points and we don't see any access points in this packet, skip it
-                #if len(matched_ap_bssid) < 1:
-                #    return
-                #else:
-                #    print('Packet matching AP: {}'.format(pkt.summary()))
 
             if self.alert_new_macs:
                 self.check_for_unseen_macs(macs_in_pkt)
@@ -500,8 +511,7 @@ class TrackerJacker:
             if self.alert_new_ssids:
                 if dot11_frame.ssid and dot11_frame.ssid not in self.seen_ssids:
                     self.new_ssid_found(dot11_frame.ssid, dot11_frame.bssid)
-                    self.seen_ssids |= set([ssid])
-                #self.check_for_unseen_ssids(pkt)
+                    self.seen_ssids |= set([dot11_frame.ssid])
 
             # See if any MACs we care about are here
             matched_macs = self.devices_to_watch_set & macs_in_pkt
@@ -569,8 +579,8 @@ def get_config():
               'aps_to_watch': [],
               'window_secs': 10,
               'do_map': True,
-              'map_file': 'wifi_map.txt',
-              'map_frequency': 10,
+              'map_file': 'wifi_map.yaml',
+              'map_save_period': 10,
               'alert_threshold': 1,
               'alert_cooldown': 30,
               'alert_new_macs': True,

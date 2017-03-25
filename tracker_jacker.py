@@ -23,7 +23,7 @@ from scapy.all import *
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 
 def get_physical_name(iface_name):
@@ -191,6 +191,7 @@ class Dot11Map:
         self.map_data = {}
         self.mac_vendor_db = MacVendorDB()
         self.associated_macs = set()
+        self.bssid_to_ssid = {}
 
     def add_frame(self, channel, dot11_frame):
         if channel not in self.map_data:
@@ -205,7 +206,12 @@ class Dot11Map:
 
             # Associate ssid with bssid entry if no ssid has already been set
             if not bssid_node['ssid']:
-                bssid_node['ssid'] = dot11_frame.ssid
+                if dot11_frame.bssid in self.bssid_to_ssid:
+                    bssid_node['ssid'] = self.bssid_to_ssid[dot11_frame.bssid]
+                else:
+                    bssid_node['ssid'] = dot11_frame.ssid
+            else:
+                self.bssid_to_ssid[dot11_frame.bssid] = bssid_node['ssid']
 
             bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - set([dot11_frame.bssid])
 
@@ -231,6 +237,11 @@ class Dot11Map:
                     f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
                     # Wrote SSID if it exists for this SSID
                     ssid = self.map_data[channel][bssid]['ssid']
+                    if not ssid:
+                        # In case we hadn't yet got around to updating this bssid's ssid...
+                        if bssid in self.bssid_to_ssid:
+                            ssid = self.bssid_to_ssid[bssid]
+                            self.map_data[channel][bssid]['ssid'] = ssid
                     if ssid:
                         f.write('    ssid: "{}"\n'.format(ssid))
                     f.write('    macs:\n')

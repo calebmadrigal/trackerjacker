@@ -1,4 +1,4 @@
-# tracker-jacker
+# trackerjacker
 
 Tracks WiFi devices by capturing raw 802.11 frames in monitor mode.
 
@@ -11,13 +11,13 @@ Tracks WiFi devices by capturing raw 802.11 frames in monitor mode.
 
 ## How to use
 
-tracker-jacker is configured via a few command-line switches and/or a config file (the path to which can be specified with the `-c` command-line switch).
+trackerjacker is configured via a few command-line switches and/or a config file (the path to which can be specified with the `-c` command-line switch).
 
 ### Command-line options
 
 ```
-# python3 tracker_jacker.py -h
-usage: tracker_jacker.py [-h] [-i IFACE] [-m DEVICES_TO_WATCH]
+# python3 trackerjacker.py -h
+usage: trackerjacker.py [-h] [-i IFACE] [-m DEVICES_TO_WATCH]
                          [-a APS_TO_WATCH] [-t ALERT_THRESHOLD]
                          [-w WINDOW_SECS] [--alert-command ALERT_COMMAND]
                          [--monitor-mode-on MONITOR_MODE_ON]
@@ -46,7 +46,7 @@ optional arguments:
   -c CONFIG, --config CONFIG
                         Path to config json file; default config values:
                         alert_threshold = 1, mac_log_file = macs_seen.txt,
-                        log_file = tracker_jacker.log, channel_switch_scheme =
+                        log_file = trackerjacker.log, channel_switch_scheme =
                         traffic_based, devices_to_watch = [], alert_command =
                         None, iface = wlan0, alert_cooldown = 30, aps_to_watch
                         = [], alert_new_ssids = True, time_per_channel = 2,
@@ -68,7 +68,7 @@ optional arguments:
               'alert_new_macs': True,
               'alert_new_ssids': True,
               'alert_command': None,
-              'log_file': 'tracker_jacker.log',
+              'log_file': 'trackerjacker.log',
               'ssid_log_file': 'ssids_seen.txt',
               'mac_log_file': 'macs_seen.txt',
               'channels_to_monitor': None,
@@ -80,7 +80,7 @@ optional arguments:
 
 ### Example: configuring with command-line args
 
-    python3 tracker_jacker.py -m 8a:23:ab:75:8e:2b --alert-command "date >> /tmp/test.txt"
+    python3 trackerjacker.py -m 8a:23:ab:75:8e:2b --alert-command "date >> /tmp/test.txt"
 
 Notes:
 * This monitors for the MAC address: `8a:23:ab:75:8e:2b`
@@ -88,7 +88,7 @@ Notes:
 
 ### Example: configuring with config file
 
-	python3 tracker_jacker.py -c my_config.json
+	python3 trackerjacker.py -c my_config.json
 
 And here's the example config file called `my_config.json`:
 
@@ -114,18 +114,18 @@ A few notes about this:
 * `devices_to_watch` is a list which can contain either strings (representing MACs) or dicts (which allow the specification of a `name` and `threshold`)
 	- `name` is simply what a label you want to be printed when this device is seen.
 	- `threshold` in the "Security camera" is how many bytes must be seen
-* `channels_to_monitor` - list of 802.11 wifi channels to monitor. The list of channels your wifi card supports is printed when tracker_jacker starts up. By default, all supported channels are monitored.
+* `channels_to_monitor` - list of 802.11 wifi channels to monitor. The list of channels your wifi card supports is printed when trackerjacker starts up. By default, all supported channels are monitored.
 * `channel_switch_scheme` - either `round_robin` or `traffic_based`. `traffic_based` determines the channels of most traffic, and probabilistically monitors them more.
 
 ### Enable/Disable monitor mode on interface
 
 Enable monitor mode:
 
-    python3 tracker_jacker.py --monitor-mode-on wlan0
+    python3 trackerjacker.py --monitor-mode-on wlan0
 
 Disable monitor mode:
 
-    python3 tracker_jacker.py --monitor-mode-off wlan0mon
+    python3 trackerjacker.py --monitor-mode-off wlan0mon
 
-Note that `tracker_jacker.py` will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications.
+Note that `trackerjacker.py` will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications.
 

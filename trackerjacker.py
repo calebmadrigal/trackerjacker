@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-tracker-jacker
+trackerjacker
 
 Raw 802.11 frame interception tool.
 """
@@ -229,7 +229,7 @@ class Dot11Map:
     def save_to_file(self, file_path):
         """ Save to YAML file. Note that we manually write yaml to keep sorted ordering. """
         with open(file_path, 'w') as f:
-            f.write('# tracker-jacker map\n')
+            f.write('# trackerjacker map\n')
             for channel in sorted(self.map_data):
                 f.write('{}:  # channel\n'.format(channel))
                 for bssid in sorted(self.map_data[channel]):
@@ -292,7 +292,7 @@ class TrackerJacker:
                        alert_new_macs=True,
                        alert_new_ssids=True,
                        alert_command=None,
-                       log_file='tracker_jacker.log',
+                       log_file='trackerjacker.log',
                        ssid_log_file='ssids.txt',
                        mac_log_file='macs_seen.txt',
                        channels_to_monitor=None,
@@ -625,7 +625,7 @@ def get_config():
               'alert_new_macs': True,
               'alert_new_ssids': True,
               'alert_command': None,
-              'log_file': 'tracker_jacker.log',
+              'log_file': 'trackerjacker.log',
               'ssid_log_file': 'ssids_seen.txt',
               'mac_log_file': 'macs_seen.txt',
               'channels_to_monitor': None,
@@ -778,12 +778,12 @@ def get_config():
 
 if __name__ == '__main__':
     config = get_config()
-    tracker_jacker = TrackerJacker(**config)
+    trackerjacker = TrackerJacker(**config)
 
     try:
-        tracker_jacker.start()
+        trackerjacker.start()
     except KeyboardInterrupt:
         print('Stopping...')
     finally:
-        tracker_jacker.stop()
+        trackerjacker.stop()
 

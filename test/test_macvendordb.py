@@ -1,12 +1,12 @@
 import sys
 import unittest
 sys.path.append('..')
-import tracker_jacker
+import trackerjacker
 
 
 class MacVendorDBTest(unittest.TestCase):
     def setUp(self):
-        self.mac_vendor_db = tracker_jacker.MacVendorDB()
+        self.mac_vendor_db = trackerjacker.MacVendorDB()
 
     def test_channel_parsing(self):
         oui_tests = {

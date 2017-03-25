@@ -3,7 +3,7 @@ import sys
 import unittest
 import yaml
 sys.path.append('..')
-import tracker_jacker
+import trackerjacker
 
 test_frame_data = yaml.load("""
 1:
@@ -41,14 +41,13 @@ class Dot11MapTest(unittest.TestCase):
         self.test_file = 'test_map.yaml'
 
         # Create Dot11Map
-        dot11_map = tracker_jacker.Dot11Map()
+        dot11_map = trackerjacker.Dot11Map()
 
         # Add test frames to map
         for channel in test_frame_data:
             for test_frame in test_frame_data[channel]:
                 dot11_frame = MockDot11Frame(test_frame)
                 dot11_map.add_frame(channel, dot11_frame)
-
 
         # Save map to file
         # TODO: Test the actual save functionality directly

@@ -124,25 +124,25 @@ class Dot11Frame:
         if to_ds and from_ds:
             self.dst = frame.addr3
             self.src = frame.addr4
-            self.macs = (frame.addr1, frame.addr2, frame.addr3, frame.addr4)
+            self.macs = {frame.addr1, frame.addr2, frame.addr3, frame.addr4}
         elif to_ds:
             self.src = frame.addr2
             self.dst = frame.addr3
             self.bssid = frame.addr1
-            self.macs = (frame.addr2, frame.addr3)
+            self.macs = {frame.addr2, frame.addr3}
         elif from_ds:
             self.src = frame.addr3
             self.dst = frame.addr1
             self.bssid = frame.addr2
-            self.macs = (frame.addr1, frame.addr3)
+            self.macs = {frame.addr1, frame.addr3}
         else:
             self.dst = frame.addr1
             self.src = frame.addr2
             self.bssid = frame.addr3
-            self.macs = (frame.addr1, frame.addr2)
+            self.macs = {frame.addr1, frame.addr2}
 
         if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
-            self.ssid = frame[Dot11Elt].info.decode().replace('\x00', '')
+            self.ssid = frame[Dot11Elt].info.decode().replace('\x00', '[NULL]')
 
     def is_management(self):
         return self.frame.type == 0
@@ -181,53 +181,56 @@ class Dot11Map:
         macs:
           - "34:23:ba:fd:5e:24"  # Unknown
     """
-    MACS_TO_IGNORE = ['ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00']
+    MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
 
     def __init__(self):
         self.map_data = {}
         self.mac_vendor_db = MacVendorDB()
+        self.associated_macs = set()
 
     def add_frame(self, channel, dot11_frame):
         if channel not in self.map_data:
-            self.map_data[channel] = {'unassociated': [None, set()]}
+            self.map_data[channel] = {'unassociated': {'ssid': None, 'macs': set()}}
 
         chan_to_bssid = self.map_data[channel]
 
-        macs_in_frame = (set(dot11_frame.macs) - set(Dot11Map.MACS_TO_IGNORE + [dot11_frame.bssid]))
-
         if dot11_frame.bssid and dot11_frame.bssid not in Dot11Map.MACS_TO_IGNORE:
             if dot11_frame.bssid not in chan_to_bssid:
-                chan_to_bssid[dot11_frame.bssid] = [None, set()]
+                chan_to_bssid[dot11_frame.bssid] = {'ssid': None, 'macs': set()}
             bssid_node = chan_to_bssid[dot11_frame.bssid]
+
             # Associate ssid with bssid entry if no ssid has already been set
-            if not bssid_node[0]:
-                bssid_node[0] = dot11_frame.ssid
-            self.delete_from_unassociated(macs_in_frame)
+            if not bssid_node['ssid']:
+                bssid_node['ssid'] = dot11_frame.ssid
+
+            bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - set([dot11_frame.bssid])
+
+            # Now that each of these MACs have been associated with this bssid, they are no longer 'unassociated'
+            self.associated_macs |= dot11_frame.macs
+            self.delete_from_unassociated(dot11_frame.macs - Dot11Map.MACS_TO_IGNORE)
         else:
             bssid_node = chan_to_bssid['unassociated']
-
-        bssid_node[1] |= macs_in_frame
+            bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - self.associated_macs
 
     def delete_from_unassociated(self, macs_to_remove):
         for channel in self.map_data:
-            unassociated_node = self.map_data[channel]['unassociated']
-            unassociated_node[1] = unassociated_node[1] - macs_to_remove
+            self.map_data[channel]['unassociated']['macs'] -= macs_to_remove
 
     def save_to_file(self, file_path):
         """ Save to YAML file. Note that we manually write yaml to keep sorted ordering. """
         with open(file_path, 'w') as f:
-            f.write('# tracker-jacker map file\n')
-            for channel in [str(i) for i in sorted([int(chan) for chan in self.map_data])]:
+            f.write('# tracker-jacker map\n')
+            for channel in sorted(self.map_data):
                 f.write('{}:  # channel\n'.format(channel))
                 for bssid in sorted(self.map_data[channel]):
                     bssid_vendor = self.mac_vendor_db.lookup(bssid)
                     f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
                     # Wrote SSID if it exists for this SSID
-                    ssid = self.map_data[channel][bssid][0]
+                    ssid = self.map_data[channel][bssid]['ssid']
                     if ssid:
                         f.write('    ssid: "{}"\n'.format(ssid))
                     f.write('    macs:\n')
-                    for mac in sorted([i for i in self.map_data[channel][bssid][1] if i]):
+                    for mac in sorted([i for i in self.map_data[channel][bssid]['macs'] if i]):
                         mac_vendor = self.mac_vendor_db.lookup(mac)
                         if mac_vendor == '':
                             mac_vendor = "Unknown"
@@ -235,11 +238,30 @@ class Dot11Map:
 
     def load_from_file(self, file_path):
         """ Load from YAML file. """
-        import yaml
-        with open(file_path, 'r') as f:
-            loaded_map = yaml.load(f.read())
-        self.map_data = loaded_map
-        return loaded_map
+        try:
+            import yaml
+            with open(file_path, 'r') as f:
+                loaded_map = yaml.load(f.read())
+
+            # Cleanup and make the list of MACs be a set of MACs
+            for channel in loaded_map:
+                for bssid in loaded_map[channel]:
+                    bssid_node = loaded_map[channel][bssid]
+                    if 'ssid' not in bssid_node:
+                        bssid_node['ssid'] = None
+
+                    # If key not present or value is None
+                    if 'macs' not in bssid_node or not bssid_node['macs']:
+                        bssid_node['macs'] = set()
+                    else:
+                        bssid_node['macs'] = set(bssid_node['macs'])
+
+            self.map_data = loaded_map
+            return loaded_map
+
+        except Exception as e:
+            print('Error loading map from file ({}): {}'.format(file_path, e))
+            return {}
 
 
 class TrackerJacker:
@@ -259,7 +281,7 @@ class TrackerJacker:
                        ssid_log_file='ssids.txt',
                        mac_log_file='macs_seen.txt',
                        channels_to_monitor=None,
-                       channel_switch_scheme='traffic_based',
+                       channel_switch_scheme='round_robin',
                        time_per_channel=2,
                        display_matching_packets=True,
                        display_all_packets=False):
@@ -443,6 +465,8 @@ class TrackerJacker:
 
     def switch_to_channel(self, channel_num):
         print('Switching to channel {}'.format(channel_num))
+        if channel_num == self.current_channel:
+            return
         switch_to_channel(self.iface, channel_num)
         self.current_channel = channel_num
 
@@ -494,7 +518,7 @@ class TrackerJacker:
             self.num_msgs_received_this_channel += 1
 
             if self.do_map:
-                self.dot11_map.add_frame(self.current_channel, dot11_frame)
+                self.dot11_map.add_frame(int(self.current_channel), dot11_frame)
                 if time.time() - self.map_last_save >= self.map_save_period:
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
@@ -590,7 +614,7 @@ def get_config():
               'ssid_log_file': 'ssids_seen.txt',
               'mac_log_file': 'macs_seen.txt',
               'channels_to_monitor': None,
-              'channel_switch_scheme': 'traffic_based',
+              'channel_switch_scheme': 'round_robin',
               'time_per_channel': 2,
               'display_matching_packets': True,
               'display_all_packets': False,

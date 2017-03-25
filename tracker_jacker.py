@@ -109,6 +109,7 @@ class MacVendorDB:
 
 
 class Dot11Frame:
+    """ Takes a scapy Dot11 frame and turns it into a format we want. """
     TO_DS = 0x1
     FROM_DS = 0x2
 
@@ -156,6 +157,9 @@ class Dot11Frame:
     def __str__(self):
         return 'Dot11 (type={}, from={}, to={}, bssid={}, ssid={})'.format(
                self.frame.type, self.src, self.dst, self.bssid, self.ssid)
+
+    def __repr__(self):
+        return self.__str__()
 
 
 class Dot11Map:

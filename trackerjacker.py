@@ -23,7 +23,7 @@ from scapy.all import *
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def get_physical_name(iface_name):
@@ -286,6 +286,7 @@ class TrackerJacker:
                        aps_to_watch=(),
                        window_secs=10,
                        do_map=True,
+                       do_track=True,
                        map_file='wifi_map.yaml',
                        map_save_period=10,  # seconds
                        alert_threshold=1,
@@ -302,30 +303,7 @@ class TrackerJacker:
                        display_matching_packets=True,
                        display_all_packets=False):
 
-        # If 'mon' is in the interface name, assume it's already in interface mode
-        # Otherwise, enable monitor mode and call monitor iface name iface + 'mon'
-        # E.g. if iface is 'wlan0', create a monitor mode interface called 'wlan0mon'
-        if 'mon' in iface:
-            self.iface = iface
-            self.original_iface_name = None
-            print('Assuming iface is already in monitor mode...')
-        else:
-            try:
-                self.iface = monitor_mode_on(iface)
-                self.original_iface_name = iface
-                print('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
-            except Exception:
-                # If we fail to find the specified (or default) interface, look to see if there is an
-                # interface with 'mon' in the name, and if so, try it.
-                print('Interface not found: {}; searching for valid monitor interface...'.format(iface))
-                mon_iface = find_mon_iface()
-                self.original_iface_name = None
-                if mon_iface:
-                    self.iface = mon_iface
-                    print('Going with interface: {}'.format(self.iface))
-                else:
-                    print('Could not find monitor interface')
-                    sys.exit(1)
+        self.configure_interface(iface)
 
         # Find supported channels
         self.supported_channels = get_supported_channels(self.iface)
@@ -340,10 +318,11 @@ class TrackerJacker:
 
         self.aps_to_watch = {ap.pop('bssid').lower(): ap for ap in aps_to_watch if 'bssid' in ap}
         self.aps_to_watch_set = set([bssid for bssid in self.aps_to_watch.keys()])
-        self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])
+        self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])  # TODO: Use this
 
         self.window_secs = window_secs
         self.do_map = do_map
+        self.do_track = do_track
         self.map_file = map_file
         self.map_save_period = map_save_period
         self.map_data = {}
@@ -429,6 +408,32 @@ class TrackerJacker:
 
         # Start channel switcher thread
         self.channel_switcher_thread()
+
+    def configure_interface(self, iface):
+        # If 'mon' is in the interface name, assume it's already in interface mode
+        # Otherwise, enable monitor mode and call monitor iface name iface + 'mon'
+        # E.g. if iface is 'wlan0', create a monitor mode interface called 'wlan0mon'
+        if 'mon' in iface:
+            self.iface = iface
+            self.original_iface_name = None
+            print('Assuming iface is already in monitor mode...')
+        else:
+            try:
+                self.iface = monitor_mode_on(iface)
+                self.original_iface_name = iface
+                print('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
+            except Exception:
+                # If we fail to find the specified (or default) interface, look to see if there is an
+                # interface with 'mon' in the name, and if so, try it.
+                print('Interface not found: {}; searching for valid monitor interface...'.format(iface))
+                mon_iface = find_mon_iface()
+                self.original_iface_name = None
+                if mon_iface:
+                    self.iface = mon_iface
+                    print('Going with interface: {}'.format(self.iface))
+                else:
+                    print('Could not find monitor interface')
+                    sys.exit(1)
 
     def get_threshold(self, mac):
         if mac in self.devices_to_watch and 'threshold' in self.devices_to_watch[mac]:
@@ -587,7 +592,7 @@ class TrackerJacker:
         self.do_alert()
         self.last_alerted[mac] = time.time()
 
-    def check_loop(self):
+    def tracking_check_thresholds(self):
         while True:
             for mac in self.devices_to_watch_set:
                 bytes_received_in_time_window = self.get_bytes_in_time_window(mac)
@@ -600,7 +605,7 @@ class TrackerJacker:
 
     def start(self):
         print('Starting monitoring on {}'.format(self.iface))
-        t = threading.Thread(target=self.check_loop)
+        t = threading.Thread(target=self.tracking_check_thresholds)
         t.daemon = True
         t.start()
 
@@ -643,7 +648,9 @@ def get_config():
     parser = argparse.ArgumentParser()
     # Modes
     parser.add_argument('--map', action='store_true', dest='do_map',
-                        help='Map mode - output map to wifi_map.txt')
+                        help='Map mode - output map to wifi_map.yaml')
+    parser.add_argument('--track', action='store_true', dest='do_track',
+                        help='Track mode')
     parser.add_argument('--monitor-mode-on', action='store_true', dest='do_enable_monitor_mode',
                         help='Enables monitor mode on the specified interface and exit')
     parser.add_argument('--monitor-mode-off', action='store_true', dest='do_disable_monitor_mode',

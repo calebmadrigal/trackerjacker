@@ -424,7 +424,7 @@ class TrackerJacker:
         self.num_msgs_received_this_channel = 0
         self.channel_switch_scheme = channel_switch_scheme
 
-        self.switch_to_channel(self.current_channel)
+        self.switch_to_channel(self.current_channel, force=True)
 
         # Start channel switcher thread
         self.channel_switcher_thread()
@@ -478,9 +478,9 @@ class TrackerJacker:
         next_channel = chans[(chans.index(self.current_channel)+1) % len(chans)]
         self.switch_to_channel(next_channel)
 
-    def switch_to_channel(self, channel_num):
+    def switch_to_channel(self, channel_num, force=False):
         print('Switching to channel {}'.format(channel_num))
-        if channel_num == self.current_channel:
+        if channel_num == self.current_channel and not force:
             return
         switch_to_channel(self.iface, channel_num)
         self.current_channel = channel_num
@@ -726,7 +726,7 @@ def get_config():
 
     if args.config:
         try:
-            with open(args.config) as f:
+            with open(args.config, 'r') as f:
                 config_from_file = json.loads(f.read())
 
             # If there are any keys defined in the config file not allowed, error out
@@ -743,7 +743,7 @@ def get_config():
             config.update(config_from_file)
             print('Loaded configuration from {}'.format(args.config))
 
-        except (FileNotFoundException, IOError, OSError) as e:
+        except (IOError, OSError, json.decoder.JSONDecodeError) as e:
             print('Error loading config file ({}): {}'.format(args.config, e))
             sys.exit(1)
 

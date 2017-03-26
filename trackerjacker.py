@@ -26,6 +26,26 @@ __license__ = "MIT"
 __version__ = "0.2.0"
 
 
+def make_logger(log_path=None, log_level_str='INFO'):
+    logger = logging.getLogger('trackerjacker')
+    formatter = logging.Formatter('%(asctime)s: (%(levelname)s): %(message)s')
+    if log_path:
+        log_handler = logging.FileHandler(log_path)
+        log_handler.setFormatter(formatter)
+        # Print errors to stderr if logging to a file
+        stdout_handler = logging.StreamHandler(sys.stderr)
+        stdout_handler.setLevel('ERROR')
+        stdout_handler.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(stdout_handler)
+    else:
+        log_handler = logging.StreamHandler(sys.stdout)
+        log_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(log_handler)
+    log_level = logging.getLevelName(log_level_str.upper())
+    logger.setLevel(log_level)
+    return logger
+
+
 def get_physical_name(iface_name):
     physical_name= ''
     with open('/sys/class/net/{}/phy80211/index'.format(iface_name, 'r')) as f:
@@ -188,11 +208,14 @@ class Dot11Map:
     """
     MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
 
-    def __init__(self):
+    def __init__(self, logger):
+        self.logger = logger
         self.map_data = {}
         self.mac_vendor_db = MacVendorDB()
         self.associated_macs = set()
         self.bssid_to_ssid = {}
+        self.ssids_seen = set()
+        self.macs_seen = set()
 
     def add_frame(self, channel, dot11_frame):
         if channel not in self.map_data:
@@ -276,12 +299,19 @@ class Dot11Map:
             return loaded_map
 
         except Exception as e:
-            print('Error loading map from file ({}): {}'.format(file_path, e))
+            self.logger.error('Error loading map from file ({}): {}'.format(file_path, e))
             return {}
 
 
+class Dot11Tracker:
+    def __init__(self):
+        pass
+
+
 class TrackerJacker:
-    def __init__(self, iface='wlan0',
+    def __init__(self, log_path=None,
+                       log_level='INFO',
+                       iface='wlan0',
                        devices_to_watch=(),
                        aps_to_watch=(),
                        window_secs=10,
@@ -303,15 +333,17 @@ class TrackerJacker:
                        display_matching_packets=True,
                        display_all_packets=False):
 
+        self.logger = make_logger(log_path, log_level)
+
         self.configure_interface(iface)
 
         # Find supported channels
         self.supported_channels = get_supported_channels(self.iface)
         if len(self.supported_channels) == 0:
-            print('Interface not found: {}'.format(self.iface))
+            logger.error('Interface not found: {}'.format(self.iface))
             sys.exit(2)
 
-        print('Supported channels: {}'.format(self.supported_channels))
+        self.logger.info('Supported channels: {}'.format(self.supported_channels))
 
         self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
         self.devices_to_watch_set = set([mac for mac in self.devices_to_watch.keys()])
@@ -350,9 +382,9 @@ class TrackerJacker:
                         mac_entry = ast.literal_eval(line)
                         seen_macs_list.append(mac_entry['mac'])
                     self.seen_macs = set(seen_macs_list)
-                    print('Imported {} seen MACs'.format(len(self.seen_macs)))
+                    self.logger.info('Imported {} seen MACs'.format(len(self.seen_macs)))
             except Exception as e:
-                print('Failed to import MACs from file: {}'.format(e))
+                self.logger.warning('Failed to import MACs from file: {}'.format(e))
 
         # If the SSID log exists, assume each line in it is an SSID, and add it to the known SSIDs
         self.seen_ssids = set()
@@ -367,14 +399,14 @@ class TrackerJacker:
                         except Exception:
                             pass
                     self.seen_ssids = set(ssids_seen_list)
-                print('Imported {} seen SSIDs'.format(len(self.seen_ssids)))
-                print(self.seen_ssids)
+                self.logger.info('Imported {} seen SSIDs'.format(len(self.seen_ssids)))
+                self.logger.debug(self.seen_ssids)
             except Exception as e:
-                print('Failed to import SSIDs from file: {}'.format(e))
+                self.logger.warning('Failed to import SSIDs from file: {}'.format(e))
 
         # Mapping stuff
         if self.do_map:
-            self.dot11_map = Dot11Map()
+            self.dot11_map = Dot11Map(self.logger)
             if os.path.exists(self.map_file):
                 self.dot11_map.load_from_file(self.map_file)
             self.map_last_save = time.time()
@@ -416,23 +448,23 @@ class TrackerJacker:
         if 'mon' in iface:
             self.iface = iface
             self.original_iface_name = None
-            print('Assuming iface is already in monitor mode...')
+            self.logger.debug('Assuming iface is already in monitor mode...')
         else:
             try:
                 self.iface = monitor_mode_on(iface)
                 self.original_iface_name = iface
-                print('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
+                self.logger.debug('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
             except Exception:
                 # If we fail to find the specified (or default) interface, look to see if there is an
                 # interface with 'mon' in the name, and if so, try it.
-                print('Interface not found: {}; searching for valid monitor interface...'.format(iface))
+                self.logger.debug('Interface not found: {}; searching for valid monitor interface...'.format(iface))
                 mon_iface = find_mon_iface()
                 self.original_iface_name = None
                 if mon_iface:
                     self.iface = mon_iface
-                    print('Going with interface: {}'.format(self.iface))
+                    self.logger.debug('Going with interface: {}'.format(self.iface))
                 else:
-                    print('Could not find monitor interface')
+                    self.logger.error('Could not find monitor interface')
                     sys.exit(1)
 
     def get_threshold(self, mac):
@@ -485,7 +517,7 @@ class TrackerJacker:
         self.switch_to_channel(next_channel)
 
     def switch_to_channel(self, channel_num, force=False):
-        print('Switching to channel {}'.format(channel_num))
+        self.logger.debug('Switching to channel {}'.format(channel_num))
         if channel_num == self.current_channel and not force:
             return
         switch_to_channel(self.iface, channel_num)
@@ -511,22 +543,22 @@ class TrackerJacker:
             self.seen_macs |= set([mac])
 
     def new_mac_found(self, mac):
-        print('A new MAC found: {}'.format(mac))
+        self.logger.info('MAC found: {}'.format(mac))
 
         with open(self.mac_log_file, 'a') as f:
             # Note: I'm manually building the dict str repr in order to have the same order on every line
             f.write("""{"mac": "%s", "vendor": "%s"}\n""" % (mac, self.mac_vendor_db.lookup(mac)))
 
-        self.do_alert(beeps=1)
+        #self.do_alert(beeps=1)
 
     def new_ssid_found(self, ssid, bssid):
-        print('A new SSID: {}, BSSID: {}, Channel: {}'.format(ssid, bssid, self.current_channel))
+        self.logger.info('SSID found: {}, BSSID: {}, Channel: {}'.format(ssid, bssid, self.current_channel))
 
         with open(self.ssid_log_file, 'a') as f:
             # Note: I'm manually building the dict str repr in order to have the same order on every line
             f.write("""{"ssid": "%s", "bssid": "%s", "channel": %d}\n""" % (ssid, bssid, int(self.current_channel)))
 
-        self.do_alert(beeps=1)
+        #self.do_alert(beeps=1)
 
     def process_packet(self, pkt):
         if pkt.haslayer(Dot11):
@@ -584,10 +616,7 @@ class TrackerJacker:
 
         device_name = self.devices_to_watch[mac].get('name', mac)
 
-        msg = '{}: Detected {}'.format(datetime.datetime.now(), device_name)
-        print(msg)
-        with open(self.log_file, 'a') as f:
-            f.write(msg + '\n')
+        self.logger.info('{}: Detected {}'.format(datetime.datetime.now(), device_name))
 
         self.do_alert()
         self.last_alerted[mac] = time.time()
@@ -596,7 +625,7 @@ class TrackerJacker:
         while True:
             for mac in self.devices_to_watch_set:
                 bytes_received_in_time_window = self.get_bytes_in_time_window(mac)
-                print('Bytes received in last {} seconds for {}: {}' \
+                self.logger.info('Bytes received in last {} seconds for {}: {}' \
                       .format(self.window_secs, mac, bytes_received_in_time_window))
                 if bytes_received_in_time_window > self.get_threshold(mac):
                     self.mac_of_interest_detected(mac)
@@ -604,7 +633,7 @@ class TrackerJacker:
             time.sleep(5)
 
     def start(self):
-        print('Starting monitoring on {}'.format(self.iface))
+        self.logger.debug('Starting monitoring on {}'.format(self.iface))
         t = threading.Thread(target=self.tracking_check_thresholds)
         t.daemon = True
         t.start()
@@ -614,7 +643,7 @@ class TrackerJacker:
     def stop(self):
         if self.original_iface_name:
             monitor_mode_off(self.iface)
-            print('Disabled monitor mode for interface: {}'.format(self.original_iface_name))
+            self.logger.debug('Disabled monitor mode for interface: {}'.format(self.original_iface_name))
 
         # Flush map to disk
         if self.do_map:
@@ -623,7 +652,9 @@ class TrackerJacker:
 
 def get_config():
     # Default config
-    config = {'iface': 'wlan0',
+    config = {'log_path': None,
+              'log_level': 'INFO',
+              'iface': 'wlan0',
               'devices_to_watch': [],
               'aps_to_watch': [],
               'window_secs': 10,
@@ -679,6 +710,10 @@ def get_config():
                         help='Command to execute upon alert')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
                         help='If true, displays all packets matching filters')
+    parser.add_argument('--log-path', type=str, dest='log_path', default=None,
+                        help='Log path; default is stdout')
+    parser.add_argument('--log-level', type=str, dest='log_level', default='INFO',
+                        help='Log level; Options: DEBUG, INFO, WARNING, ERROR, CRITICAL')
     parser.add_argument('-c', '--config', type=str, dest='config',
                         help='Path to config json file; For example config file, use --print-default-config')
 
@@ -687,39 +722,39 @@ def get_config():
 
     if args.do_enable_monitor_mode:
         if not args.iface:
-            print('You must specify the interface with the -i paramter')
+            print('You must specify the interface with the -i paramter', file=sys.stderr)
             sys.exit(1)
         try:
             result_iface = monitor_mode_on(args.iface)
             print('Enabled monitor mode on {} as iface name: {}'.format(args.iface, result_iface))
             sys.exit(0)
         except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface))
+            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
             sys.exit(1)
     elif args.do_disable_monitor_mode:
         if not args.iface:
-            print('You must specify the interface with the -i paramter')
+            print('You must specify the interface with the -i paramter', file=sys.stderr)
             sys.exit(1)
         try:
             result_iface = monitor_mode_off(args.iface)
             print('Disabled monitor mode on {}'.format(result_iface))
             sys.exit(0)
         except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface))
+            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
             sys.exit(1)
     elif args.mac_lookup:
         vendor = MacVendorDB().lookup(args.mac_lookup)
         if vendor:
             print(vendor)
         else:
-            print('Vendor for {} not found'.format(args.mac_lookup))
+            print('Vendor for {} not found'.format(args.mac_lookup), file=sys.stderr)
         sys.exit(0)
     elif args.print_default_config:
         print(json.dumps(config, indent=4, sort_keys=True))
         sys.exit(0)
     elif args.set_channel:
         if not args.iface:
-            print('You must specify the interface with the -i paramter')
+            print('You must specify the interface with the -i paramter', file=sys.stderr)
             sys.exit(1)
         try:
             channel = args.set_channel[0]
@@ -727,11 +762,8 @@ def get_config():
             print('Set channel to {} on {}'.format(channel, args.iface))
             sys.exit(0)
         except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface))
+            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
             sys.exit(1)
-    elif args.do_map:
-        pass
-        
     
     macs_from_config = []
     aps_from_config = []
@@ -744,7 +776,7 @@ def get_config():
             # If there are any keys defined in the config file not allowed, error out
             invalid_keys = set(config_from_file.keys()) - set(config.keys())
             if invalid_keys:
-                print('Invalid keys found in config file: {}'.format(invalid_keys))
+                print('Invalid keys found in config file: {}'.format(invalid_keys), file=sys.stderr)
                 sys.exit(1)
 
             macs_from_config = [{'mac': dev} if type(dev)==str else dev
@@ -756,7 +788,7 @@ def get_config():
             print('Loaded configuration from {}'.format(args.config))
 
         except (IOError, OSError, json.decoder.JSONDecodeError) as e:
-            print('Error loading config file ({}): {}'.format(args.config, e))
+            print('Error loading config file ({}): {}'.format(args.config, e), file=sys.stderr)
             sys.exit(1)
 
     macs_from_args = []
@@ -783,8 +815,9 @@ def get_config():
         channels_to_monitor = args.channels_to_monitor.split(',')
         config['channels_to_monitor'] = channels_to_monitor
 
-    print('Config:')
-    pprint.pprint(config)
+    if config['log_level'] == 'DEBUG':
+        print('Config:')
+        pprint.pprint(config)
 
     return config
 

@@ -23,7 +23,7 @@ from scapy.all import *
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.0.4"
+__version__ = "0.1.0"
 
 
 def get_physical_name(iface_name):
@@ -145,18 +145,19 @@ class Dot11Frame:
         if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
             self.ssid = frame[Dot11Elt].info.decode().replace('\x00', '[NULL]')
 
-    def is_management(self):
-        return self.frame.type == 0
-
-    def is_control(self):
-        return self.frame.type == 1
-
-    def is_data(self):
-        return self.frame.type == 2
+    def type_name(self):
+        if self.frame.type == 0:
+            return 'management'
+        elif self.frame.type == 1:
+            return 'control'
+        elif self.frame.type == 2:
+            return 'data'
+        else:
+            return 'unknown'
 
     def __str__(self):
         return 'Dot11 (type={}, from={}, to={}, bssid={}, ssid={})'.format(
-               self.frame.type, self.src, self.dst, self.bssid, self.ssid)
+               self.type_name(), self.src, self.dst, self.bssid, self.ssid)
 
     def __repr__(self):
         return self.__str__()
@@ -609,6 +610,10 @@ class TrackerJacker:
         if self.original_iface_name:
             monitor_mode_off(self.iface)
             print('Disabled monitor mode for interface: {}'.format(self.original_iface_name))
+
+        # Flush map to disk
+        if self.do_map:
+            self.dot11_map.save_to_file(self.map_file)
 
 
 def get_config():

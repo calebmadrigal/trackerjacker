@@ -23,7 +23,7 @@ from scapy.all import *
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def make_logger(log_path=None, log_level_str='INFO'):
@@ -246,6 +246,18 @@ class Dot11Map:
             bssid_node = chan_to_bssid['unassociated']
             bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - self.associated_macs
 
+        self.check_for_new_stuff(channel, dot11_frame)
+
+    def check_for_new_stuff(self, channel, frame):
+        unseen_macs = (frame.macs - set([None])) - self.macs_seen
+        self.macs_seen |= unseen_macs
+        for mac in unseen_macs:
+            self.logger.info('MAC found: {}, Channel: {}'.format(mac, channel))
+
+        if frame.ssid and frame.ssid not in self.ssids_seen:
+            self.ssids_seen |= set([frame.ssid])
+            self.logger.info('SSID found: {}, BSSID: {}, Channel: {}'.format(frame.ssid, frame.bssid, channel))
+
     def delete_from_unassociated(self, macs_to_remove):
         for channel in self.map_data:
             self.map_data[channel]['unassociated']['macs'] -= macs_to_remove
@@ -321,12 +333,7 @@ class TrackerJacker:
                        map_save_period=10,  # seconds
                        alert_threshold=1,
                        alert_cooldown=30,
-                       alert_new_macs=True,
-                       alert_new_ssids=True,
                        alert_command=None,
-                       log_file='trackerjacker.log',
-                       ssid_log_file='ssids.txt',
-                       mac_log_file='macs_seen.txt',
                        channels_to_monitor=None,
                        channel_switch_scheme='round_robin',
                        time_per_channel=2,
@@ -343,7 +350,7 @@ class TrackerJacker:
             logger.error('Interface not found: {}'.format(self.iface))
             sys.exit(2)
 
-        self.logger.info('Supported channels: {}'.format(self.supported_channels))
+        self.logger.info('Channels available on {}: {}'.format(self.iface, self.supported_channels))
 
         self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
         self.devices_to_watch_set = set([mac for mac in self.devices_to_watch.keys()])
@@ -361,48 +368,11 @@ class TrackerJacker:
         self.map_last_write_time = 0
         self.alert_threshold = alert_threshold
         self.alert_cooldown = alert_cooldown
-        self.alert_new_macs = alert_new_macs
-        self.alert_new_ssids = alert_new_ssids
         self.alert_command = alert_command
-        self.log_file = log_file
-        self.ssid_log_file= ssid_log_file
-        self.mac_log_file = mac_log_file
         self.time_per_channel = time_per_channel
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = MacVendorDB()
-
-        # If the mac log exists, assume each line in it is a MAC, and add it to the known MACs
-        self.seen_macs = set()
-        if os.path.exists(self.mac_log_file):
-            try:
-                with open(self.mac_log_file, 'r') as f:
-                    seen_macs_list = []
-                    for line in f.readlines():
-                        mac_entry = ast.literal_eval(line)
-                        seen_macs_list.append(mac_entry['mac'])
-                    self.seen_macs = set(seen_macs_list)
-                    self.logger.info('Imported {} seen MACs'.format(len(self.seen_macs)))
-            except Exception as e:
-                self.logger.warning('Failed to import MACs from file: {}'.format(e))
-
-        # If the SSID log exists, assume each line in it is an SSID, and add it to the known SSIDs
-        self.seen_ssids = set()
-        if os.path.exists(self.ssid_log_file):
-            try:
-                with open(self.ssid_log_file, 'r') as f:
-                    ssids_seen_list = []
-                    for line in f.readlines():
-                        try:
-                            ssid_entry = ast.literal_eval(line.strip())
-                            ssids_seen_list.append(ssid_entry['ssid'])
-                        except Exception:
-                            pass
-                    self.seen_ssids = set(ssids_seen_list)
-                self.logger.info('Imported {} seen SSIDs'.format(len(self.seen_ssids)))
-                self.logger.debug(self.seen_ssids)
-            except Exception as e:
-                self.logger.warning('Failed to import SSIDs from file: {}'.format(e))
 
         # Mapping stuff
         if self.do_map:
@@ -536,30 +506,6 @@ class TrackerJacker:
             self.packet_lens[mac] = still_in_window
         return sum([i[1] for i in still_in_window])
 
-    def check_for_unseen_macs(self, macs_in_pkt):
-        unseen_macs = (macs_in_pkt - set([None])) - self.seen_macs
-        for mac in unseen_macs:
-            self.new_mac_found(mac)
-            self.seen_macs |= set([mac])
-
-    def new_mac_found(self, mac):
-        self.logger.info('MAC found: {}'.format(mac))
-
-        with open(self.mac_log_file, 'a') as f:
-            # Note: I'm manually building the dict str repr in order to have the same order on every line
-            f.write("""{"mac": "%s", "vendor": "%s"}\n""" % (mac, self.mac_vendor_db.lookup(mac)))
-
-        #self.do_alert(beeps=1)
-
-    def new_ssid_found(self, ssid, bssid):
-        self.logger.info('SSID found: {}, BSSID: {}, Channel: {}'.format(ssid, bssid, self.current_channel))
-
-        with open(self.ssid_log_file, 'a') as f:
-            # Note: I'm manually building the dict str repr in order to have the same order on every line
-            f.write("""{"ssid": "%s", "bssid": "%s", "channel": %d}\n""" % (ssid, bssid, int(self.current_channel)))
-
-        #self.do_alert(beeps=1)
-
     def process_packet(self, pkt):
         if pkt.haslayer(Dot11):
             dot11_frame = Dot11Frame(pkt)
@@ -582,14 +528,6 @@ class TrackerJacker:
                 else:
                     return
 
-            if self.alert_new_macs:
-                self.check_for_unseen_macs(macs_in_pkt)
-
-            if self.alert_new_ssids:
-                if dot11_frame.ssid and dot11_frame.ssid not in self.seen_ssids:
-                    self.new_ssid_found(dot11_frame.ssid, dot11_frame.bssid)
-                    self.seen_ssids |= set([dot11_frame.ssid])
-
             # See if any MACs we care about are here
             matched_macs = self.devices_to_watch_set & macs_in_pkt
             if matched_macs:
@@ -601,14 +539,11 @@ class TrackerJacker:
                         packet_lens = self.get_packet_lens(mac)
                         packet_lens.append((time.time(), len(pkt)))
 
-    def do_alert(self, beeps=5, thing_detected=None):
+    def do_alert(self, beeps=5):
         if self.alert_command:
             # Start alert_command in background process - fire and forget
             subprocess.Popen(self.alert_command)
-
-        for i in range(beeps):
             print(chr(0x07))
-            time.sleep(0.2)
 
     def mac_of_interest_detected(self, mac):
         if time.time() - self.last_alerted.get(mac, 9999999) < self.alert_cooldown:
@@ -663,12 +598,7 @@ def get_config():
               'map_save_period': 10,
               'alert_threshold': 1,
               'alert_cooldown': 30,
-              'alert_new_macs': True,
-              'alert_new_ssids': True,
               'alert_command': None,
-              'log_file': 'trackerjacker.log',
-              'ssid_log_file': 'ssids_seen.txt',
-              'mac_log_file': 'macs_seen.txt',
               'channels_to_monitor': None,
               'channel_switch_scheme': 'round_robin',
               'time_per_channel': 2,

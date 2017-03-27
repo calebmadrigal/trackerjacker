@@ -17,14 +17,32 @@ trackerjacker is configured via a few command-line switches and/or a config file
 
 ```
 # python3 trackerjacker.py -h
-usage: trackerjacker.py [-h] [-i IFACE] [-m DEVICES_TO_WATCH]
-                         [-a APS_TO_WATCH] [-t ALERT_THRESHOLD]
-                         [-w WINDOW_SECS] [--alert-command ALERT_COMMAND]
-                         [--monitor-mode-on MONITOR_MODE_ON]
-                         [--monitor-mode-off MONITOR_MODE_OFF] [-c CONFIG]
+usage: trackerjacker.py [-h] [--map] [--track] [--monitor-mode-on]
+                        [--monitor-mode-off] [--set-channel CHANNEL]
+                        [--mac-lookup MAC_LOOKUP] [--print-default-config]
+                        [-i IFACE] [-m DEVICES_TO_WATCH] [-a APS_TO_WATCH]
+                        [--channels-to-monitor CHANNELS_TO_MONITOR]
+                        [-t THRESHOLD_BYTES] [-w THRESHOLD_WINDOW]
+                        [--alert-command ALERT_COMMAND]
+                        [--display-all-packets] [--log-path LOG_PATH]
+                        [--log-level LOG_LEVEL] [-c CONFIG]
 
 optional arguments:
   -h, --help            show this help message and exit
+  --map                 Map mode - output map to wifi_map.yaml
+  --track               Track mode
+  --monitor-mode-on     Enables monitor mode on the specified interface and
+                        exit
+  --monitor-mode-off    Disables monitor mode on the specified interface and
+                        exit
+  --set-channel CHANNEL
+                        Set the specified wireless interface to the specified
+                        channel and exit
+  --mac-lookup MAC_LOOKUP
+                        Lookup the vendor of the specified MAC address and
+                        exit
+  --print-default-config
+                        Print boilerplate config file and exit
   -i IFACE, --interface IFACE
                         Network interface to use
   -m DEVICES_TO_WATCH, --macs DEVICES_TO_WATCH
@@ -32,51 +50,37 @@ optional arguments:
   -a APS_TO_WATCH, --access-points APS_TO_WATCH
                         Access point(s) to track - specified by BSSID; comma
                         separated for multiple
-  -t ALERT_THRESHOLD, --threshold ALERT_THRESHOLD
+  --channels-to-monitor CHANNELS_TO_MONITOR
+                        Channels to monitor; comma separated for multiple
+  -t THRESHOLD_BYTES, --threshold THRESHOLD_BYTES
                         Threshold of packets in time window which causes alert
-  -w WINDOW_SECS, --time-window WINDOW_SECS
+  -w THRESHOLD_WINDOW, --time-window THRESHOLD_WINDOW
                         Time window (in seconds) which alert threshold is
                         applied to
   --alert-command ALERT_COMMAND
                         Command to execute upon alert
-  --monitor-mode-on MONITOR_MODE_ON
-                        Enables monitor mode on the specified interface
-  --monitor-mode-off MONITOR_MODE_OFF
-                        Disables monitor mode on the specified interface
+  --display-all-packets
+                        If true, displays all packets matching filters
+  --log-path LOG_PATH   Log path; default is stdout
+  --log-level LOG_LEVEL
+                        Log level; Options: DEBUG, INFO, WARNING, ERROR,
+                        CRITICAL
   -c CONFIG, --config CONFIG
-                        Path to config json file; default config values:
-                        alert_threshold = 1, mac_log_file = macs_seen.txt,
-                        log_file = trackerjacker.log, channel_switch_scheme =
-                        traffic_based, devices_to_watch = [], alert_command =
-                        None, iface = wlan0, alert_cooldown = 30, aps_to_watch
-                        = [], alert_new_ssids = True, time_per_channel = 2,
-                        display_all_packets = False, window_secs = 10,
-                        channels_to_monitor = None, alert_new_macs = True,
-                        display_matching_packets = True, ssid_log_file =
-                        ssids_seen.txt
-
+                        Path to config json file; For example config file, use
+                        --print-default-config
 ```
 
-### All config options (and their default values)
+#### Major commands
 
-    config = {'iface': 'wlan0',
-              'devices_to_watch': [],
-              'aps_to_watch': [],
-              'window_secs': 10,
-              'alert_threshold': 1,
-              'alert_cooldown': 30,
-              'alert_new_macs': True,
-              'alert_new_ssids': True,
-              'alert_command': None,
-              'log_file': 'trackerjacker.log',
-              'ssid_log_file': 'ssids_seen.txt',
-              'mac_log_file': 'macs_seen.txt',
-              'channels_to_monitor': None,
-              'channel_switch_scheme': 'traffic_based',
-              'time_per_channel': 2,
-              'display_packets': False,
-             }
+Note that there are 7 "commands"/"modes" in trackerjacker. The 2 main modes are `--map` and `--track`, and there 5 other "do something and quit" commands:
 
+* `--map`
+* `--track`
+* `--monitor-mode-on`
+* `--monitor-mode-off`
+* `--set-channel`
+* `--mac-lookup`
+* `--print-default-config`
 
 ### Example: configuring with command-line args
 
@@ -101,31 +105,37 @@ And here's the example config file called `my_config.json`:
         {"mac": "f2:43:2b:e5:c3:6d", "name": "Security camera", "threshold": 20000},
         "44:61:32:C6:34:8F"],
     "aps_to_watch": [{"bssid": "c6:23:ef:33:cc:a2"}],
-    "alert_threshold": 1,
-    "window_secs": 10,
+    "threshold_bytes": 1,
+    "threshold_window": 10,
     "channels_to_monitor": [1, 6, 11, 52],
     "channel_switch_scheme": "round_robin"
 }
 ```
 
 A few notes about this:
-* `alert_threshold` is the default threshold of bytes which, if seen, a causes the alert function to be called
-* `window_secs` is the time window in which the alert_threshold is analyzed.
+* `threshold_bytes` is the default threshold of bytes which, if seen, a causes the alert function to be called
+* `threshold_window` is the time window in which the `threshold_bytes` is analyzed.
 * `devices_to_watch` is a list which can contain either strings (representing MACs) or dicts (which allow the specification of a `name` and `threshold`)
 	- `name` is simply what a label you want to be printed when this device is seen.
 	- `threshold` in the "Security camera" is how many bytes must be seen
 * `channels_to_monitor` - list of 802.11 wifi channels to monitor. The list of channels your wifi card supports is printed when trackerjacker starts up. By default, all supported channels are monitored.
-* `channel_switch_scheme` - either `round_robin` or `traffic_based`. `traffic_based` determines the channels of most traffic, and probabilistically monitors them more.
+* `channel_switch_scheme` - either `default`, `round_robin`, or `traffic_based`. `traffic_based` determines the channels of most traffic, and probabilistically monitors them more.
 
-### Enable/Disable monitor mode on interface
+### Example: Enable/Disable monitor mode on interface
 
 Enable monitor mode:
 
-    python3 trackerjacker.py --monitor-mode-on wlan0
+    python3 trackerjacker.py --monitor-mode-on -i wlan0
 
 Disable monitor mode:
 
-    python3 trackerjacker.py --monitor-mode-off wlan0mon
+    python3 trackerjacker.py --monitor-mode-off -i wlan0mon
 
-Note that `trackerjacker.py` will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications.
+Note that trackerjacker will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications.
+
+### Example: Set adapter channel
+
+    python3 trackerjacker.py --set-channel 11 -i wlan0
+
+Note that trackerjacker will automatically switch channels as necessary during normal map/track actions. This option is just useful if you want to set the channel on an interface for use with other applications.
 

@@ -24,7 +24,7 @@ from scapy.all import *
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def make_logger(log_path=None, log_level_str='INFO'):
@@ -101,8 +101,8 @@ def get_supported_channels(iface):
             c = m.groups()[0]
             channels.append(c)
 
-    # '06' -> '6', and sort
-    channels = [str(i) for i in sorted(list(set([int(chan) for chan in channels])))]
+    # '07' -> 7, and sort
+    channels = list(sorted(list(set([int(chan) for chan in channels]))))
     return channels
 
 
@@ -317,65 +317,128 @@ class Dot11Map:
 
 
 class Dot11Tracker:
-    def __init__(self):
-        pass
+    def __init__(self, logger,
+                       devices_to_watch,
+                       aps_to_watch,
+                       threshold_bytes,
+                       threshold_window,
+                       alert_cooldown,
+                       alert_command):
+
+        # self.arg = arg for every arg
+        self.__dict__.update(locals())
+
+        self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
+        self.devices_to_watch_set = set([mac for mac in self.devices_to_watch.keys()])
+        self.aps_to_watch = {ap.pop('bssid').lower(): ap for ap in aps_to_watch if 'bssid' in ap}
+        self.aps_to_watch_set = set([bssid for bssid in self.aps_to_watch.keys()])
+        #self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])  # TODO: Use this
+
+        self.packet_lens = {}
+        self.packet_lens_lock = threading.Lock()
+        self.last_alerted = {}
+
+    def get_packet_lens(self, mac):
+        if mac not in self.packet_lens:
+            self.packet_lens[mac] = []
+        return self.packet_lens[mac]
+
+    def add_bytes_for_mac(self, mac, num_bytes):
+        with self.packet_lens_lock:
+            packet_lens = self.get_packet_lens(mac)
+            packet_lens.append((time.time(), num_bytes))
+
+    def get_bytes_in_time_window(self, mac):
+        still_in_windows = 0
+        with self.packet_lens_lock:
+            packet_lens = self.get_packet_lens(mac)
+            still_in_window = list(itertools.takewhile(lambda i: time.time()-i[0] < self.threshold_window, packet_lens))
+            self.packet_lens[mac] = still_in_window
+        return sum([i[1] for i in still_in_window])
+
+    def get_threshold(self, mac):
+        if mac in self.devices_to_watch and 'threshold' in self.devices_to_watch[mac]:
+            return self.devices_to_watch[mac]['threshold']
+        else:
+            return self.threshold_bytes
+
+    def do_alert(self):
+        if self.alert_command:
+            # Start alert_command in background process - fire and forget
+            print(chr(0x07))  # beep
+            subprocess.Popen(self.alert_command)
+
+    def mac_of_interest_detected(self, mac):
+        if time.time() - self.last_alerted.get(mac, 9999999) < self.alert_cooldown:
+            return
+
+        device_name = ' ({})'.format(self.devices_to_watch[mac]['name']) if 'name' in self.devices_to_watch[mac] else ''
+        self.logger.info('{}: Detected {}'.format(datetime.datetime.now(), mac, device_name))
+        self.do_alert()
+        self.last_alerted[mac] = time.time()
+
+    def startTracking(self, firethread=True):
+        if firethread:
+            t = threading.Thread(target=self.startTracking, args=(False,))
+            t.daemon = True
+            t.start()
+            return t
+
+        self.running = True
+
+        while self.running:
+            for mac in self.devices_to_watch_set:
+                bytes_received_in_time_window = self.get_bytes_in_time_window(mac)
+                self.logger.info('Bytes received in last {} seconds for {}: {}' \
+                      .format(self.threshold_window, mac, bytes_received_in_time_window))
+                if bytes_received_in_time_window > self.get_threshold(mac):
+                    self.mac_of_interest_detected(mac)
+
+            time.sleep(5)
+
+    def stop(self):
+        self.running = False
 
 
 class TrackerJacker:
     def __init__(self, log_path=None,
                        log_level='INFO',
                        iface='wlan0',
-                       devices_to_watch=(),
-                       aps_to_watch=(),
-                       window_secs=10,
-                       do_map=True,
-                       do_track=True,
-                       map_file='wifi_map.yaml',
-                       map_save_period=10,  # seconds
-                       alert_threshold=1,
-                       alert_cooldown=30,
-                       alert_command=None,
                        channels_to_monitor=None,
-                       channel_switch_scheme='round_robin',
+                       channel_switch_scheme='default',
                        time_per_channel=2,
                        display_matching_packets=True,
-                       display_all_packets=False):
+                       display_all_packets=False,
+                       # map args
+                       do_map=True,
+                       map_file='wifi_map.yaml',
+                       map_save_period=10,  # seconds
+                       macs_to_watch=(),
+                       # track args
+                       do_track=True,
+                       devices_to_watch=(),
+                       aps_to_watch=(),
+                       threshold_bytes=1,
+                       threshold_window=10,  # seconds
+                       alert_cooldown=30,
+                       alert_command=None):
 
-        self.logger = make_logger(log_path, log_level)
-
-        self.configure_interface(iface)
-
-        # Find supported channels
-        self.supported_channels = get_supported_channels(self.iface)
-        if len(self.supported_channels) == 0:
-            logger.error('Interface not found: {}'.format(self.iface))
-            sys.exit(1)
-
-        self.logger.info('Channels available on {}: {}'.format(self.iface, self.supported_channels))
-
-        self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
-        self.devices_to_watch_set = set([mac for mac in self.devices_to_watch.keys()])
-
-        self.aps_to_watch = {ap.pop('bssid').lower(): ap for ap in aps_to_watch if 'bssid' in ap}
-        self.aps_to_watch_set = set([bssid for bssid in self.aps_to_watch.keys()])
-        self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])  # TODO: Use this
-
-        self.window_secs = window_secs
         self.do_map = do_map
         self.do_track = do_track
         self.map_file = map_file
         self.map_save_period = map_save_period
-        self.map_data = {}
-        self.map_last_write_time = 0
-        self.alert_threshold = alert_threshold
-        self.alert_cooldown = alert_cooldown
-        self.alert_command = alert_command
         self.time_per_channel = time_per_channel
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = MacVendorDB()
 
-        # Mapping stuff
+        self.logger = make_logger(log_path, log_level)
+        self.configure_interface(iface)
+        self.configure_channels(channels_to_monitor, channel_switch_scheme)
+
+        self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
+        self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
+
         if self.do_map:
             self.logger.info('Map output file: {}'.format(self.map_file))
             self.dot11_map = Dot11Map(self.logger)
@@ -383,35 +446,9 @@ class TrackerJacker:
                 self.dot11_map.load_from_file(self.map_file)
             self.map_last_save = time.time()
 
-        self.packet_lens = {}
-        self.packet_lens_lock = threading.Lock()
-        self.last_alerted = {}
-        self.last_channel_switch_time = 0
-
-        if channels_to_monitor:
-            self.channels_to_monitor = channels_to_monitor
-            self.current_channel = self.channels_to_monitor[0]
-        else:
-            self.channels_to_monitor = self.supported_channels
-            self.current_channel = self.supported_channels[0]
-
-        self.channel_switch_func = self.switch_channel_based_on_traffic
-
-        if channel_switch_scheme == 'traffic_based':
-            self.channel_switch_func = self.switch_channel_based_on_traffic
-        elif channel_switch_scheme == 'round_robin':
-            self.channel_switch_func = self.switch_channel_round_robin
-
-        # Start with a high count for each channel, so each channel is more likely to be tried
-        # at least once before having the true count for it set
-        self.msgs_per_channel = {c: 100000 for c in self.channels_to_monitor}
-        self.num_msgs_received_this_channel = 0
-        self.channel_switch_scheme = channel_switch_scheme
-
-        self.switch_to_channel(self.current_channel, force=True)
-
-        # Start channel switcher thread
-        self.channel_switcher_thread()
+        if self.do_track:
+            self.dot11_tracker = Dot11Tracker(self.logger, devices_to_watch, aps_to_watch,
+                                              threshold_bytes, threshold_window, alert_cooldown, alert_command)
 
     def configure_interface(self, iface):
         # If 'mon' is in the interface name, assume it's already in interface mode
@@ -439,11 +476,44 @@ class TrackerJacker:
                     self.logger.error('Could not find monitor interface')
                     sys.exit(1)
 
-    def get_threshold(self, mac):
-        if mac in self.devices_to_watch and 'threshold' in self.devices_to_watch[mac]:
-            return self.devices_to_watch[mac]['threshold']
+    def configure_channels(self, channels_to_monitor, channel_switch_scheme):
+        # Find supported channels
+        self.supported_channels = get_supported_channels(self.iface)
+        if len(self.supported_channels) == 0:
+            logger.error('Interface not found: {}'.format(self.iface))
+            sys.exit(1)
+
+        self.logger.info('Channels available on {}: {}'.format(self.iface, self.supported_channels))
+
+        if channels_to_monitor:
+            channels_to_monitor_set = set([int(c) for c in channels_to_monitor])
+            if len(channels_to_monitor_set & set(self.supported_channels)) != len(channels_to_monitor_set):
+                self.logger.error('Not all of channels to monitor are supported by {}'.format(self.iface))
+                self.restore_interface()
+                sys.exit(1)
+            self.channels_to_monitor = channels_to_monitor
+            self.current_channel = self.channels_to_monitor[0]
         else:
-            return self.alert_threshold
+            self.channels_to_monitor = self.supported_channels
+            self.current_channel = self.supported_channels[0]
+
+        if channel_switch_scheme == 'default':
+            if self.do_map: channel_switch_scheme = 'round_robin'
+            else: channel_switch_scheme = 'traffic_based'
+
+        if channel_switch_scheme == 'traffic_based':
+            self.channel_switch_func = self.switch_channel_based_on_traffic
+
+            # Start with a high count for each channel, so each channel is more likely to be tried
+            # at least once before having the true count for it set
+            self.msgs_per_channel = {c: 100000 for c in self.channels_to_monitor}
+        else:
+            self.channel_switch_func = self.switch_channel_round_robin
+
+        self.last_channel_switch_time = 0
+        self.num_msgs_received_this_channel = 0
+        self.switch_to_channel(self.current_channel, force=True)
+        self.channel_switcher_thread()
 
     def channel_switcher_thread(self, firethread=True):
         if firethread:
@@ -495,28 +565,28 @@ class TrackerJacker:
         switch_to_channel(self.iface, channel_num)
         self.current_channel = channel_num
 
-    def get_packet_lens(self, mac):
-        if mac not in self.packet_lens:
-            self.packet_lens[mac] = []
-        return self.packet_lens[mac]
-
-    def get_bytes_in_time_window(self, mac):
-        still_in_windows = 0
-        with self.packet_lens_lock:
-            packet_lens = self.get_packet_lens(mac)
-            still_in_window = list(itertools.takewhile(lambda i: time.time()-i[0] < self.window_secs, packet_lens))
-            self.packet_lens[mac] = still_in_window
-        return sum([i[1] for i in still_in_window])
-
     def process_packet(self, pkt):
         if pkt.haslayer(Dot11):
             dot11_frame = Dot11Frame(pkt)
+            self.num_msgs_received_this_channel += 1
 
             if self.display_all_packets:
-                print(dot11_frame)
+                print('\t', pkt.summary())
 
-            macs_in_pkt = set([pkt[Dot11].addr1, pkt[Dot11].addr2, pkt[Dot11].addr3, pkt[Dot11].addr4])
-            self.num_msgs_received_this_channel += 1
+            if len(self.aps_to_watch_set) > 0:
+                if dot11_frame.bssid not in self.aps_to_watch_set:
+                    return
+
+            # See if any MACs we care about are here
+            matched_macs = self.devices_to_watch_set & dot11_frame.macs
+            if matched_macs:
+                if self.display_matching_packets and not self.display_all_packets:
+                    print('\t', pkt.summary())
+
+                if self.do_track:
+                    num_bytes_in_pkt = len(pkt)
+                    for mac in matched_macs:
+                        self.dot11_tracker.add_bytes_for_mac(mac, num_bytes_in_pkt)
 
             if self.do_map:
                 self.dot11_map.add_frame(int(self.current_channel), dot11_frame)
@@ -524,65 +594,28 @@ class TrackerJacker:
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
 
-            if len(self.aps_to_watch) > 0:
-                if dot11_frame.bssid in self.aps_to_watch_set:
-                    print('Packet matching AP: {}'.format(pkt.summary()))
-                else:
-                    return
-
-            # See if any MACs we care about are here
-            matched_macs = self.devices_to_watch_set & macs_in_pkt
-            if matched_macs:
-                if self.display_matching_packets and not self.display_all_packets:
-                    print('\t', pkt.summary())
-
-                with self.packet_lens_lock:
-                    for mac in matched_macs:
-                        packet_lens = self.get_packet_lens(mac)
-                        packet_lens.append((time.time(), len(pkt)))
-
-    def do_alert(self):
-        if self.alert_command:
-            # Start alert_command in background process - fire and forget
-            print(chr(0x07))  # beep
-            subprocess.Popen(self.alert_command)
-
-    def mac_of_interest_detected(self, mac):
-        if time.time() - self.last_alerted.get(mac, 9999999) < self.alert_cooldown:
-            return
-
-        device_name = ' ({})'.format(self.devices_to_watch[mac]['name']) if name in self.devices_to_watch[mac] else ''
-        self.logger.info('{}: Detected {}'.format(datetime.datetime.now(), mac, device_name))
-        self.do_alert()
-        self.last_alerted[mac] = time.time()
-
-    def tracking_check_thresholds(self):
-        while True:
-            for mac in self.devices_to_watch_set:
-                bytes_received_in_time_window = self.get_bytes_in_time_window(mac)
-                self.logger.info('Bytes received in last {} seconds for {}: {}' \
-                      .format(self.window_secs, mac, bytes_received_in_time_window))
-                if bytes_received_in_time_window > self.get_threshold(mac):
-                    self.mac_of_interest_detected(mac)
-
-            time.sleep(5)
-
-    def start(self):
-        self.logger.debug('Starting monitoring on {}'.format(self.iface))
-        t = threading.Thread(target=self.tracking_check_thresholds)
-        t.daemon = True
-        t.start()
-
-        sniff(iface=self.iface, prn=self.process_packet, store=0)
-
-    def stop(self):
+    def restore_interface(self):
         if self.original_iface_name:
             monitor_mode_off(self.iface)
             self.logger.debug('Disabled monitor mode for interface: {}'.format(self.original_iface_name))
 
-        # Flush map to disk
+    def start(self):
+        self.logger.debug('Starting monitoring on {}'.format(self.iface))
+
+        if self.do_track:
+            self.dot11_tracker.startTracking()
+
+        sniff(iface=self.iface, prn=self.process_packet, store=0)
+
+    def stop(self):
+        self.restore_interface()
+
         if self.do_map:
+            # Flush map to disk
             self.dot11_map.save_to_file(self.map_file)
+
+        if self.do_track:
+            self.dot11_tracker.stop()
 
 
 def get_config():
@@ -592,11 +625,12 @@ def get_config():
               'iface': 'wlan0',
               'devices_to_watch': [],
               'aps_to_watch': [],
-              'window_secs': 10,
+              'threshold_window': 10,
               'do_map': True,
+              'do_track': True,
               'map_file': 'wifi_map.yaml',
               'map_save_period': 10,
-              'alert_threshold': 1,
+              'threshold_bytes': 1,
               'alert_cooldown': 30,
               'alert_command': None,
               'channels_to_monitor': None,
@@ -631,9 +665,9 @@ def get_config():
                         help='Access point(s) to track - specified by BSSID; comma separated for multiple')
     parser.add_argument('--channels-to-monitor', type=str, dest='channels_to_monitor',
                         help='Channels to monitor; comma separated for multiple')
-    parser.add_argument('-t', '--threshold', type=int, dest='alert_threshold',
+    parser.add_argument('-t', '--threshold', type=int, dest='threshold_bytes',
                         help='Threshold of packets in time window which causes alert')
-    parser.add_argument('-w', '--time-window', type=int, dest='window_secs',
+    parser.add_argument('-w', '--time-window', type=int, dest='threshold_window',
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--alert-command', type=str, dest='alert_command',
                         help='Command to execute upon alert')
@@ -722,7 +756,7 @@ def get_config():
         macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
 
     non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
-                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup', 'do_map']
+                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
 
     config_from_args = vars(args)
     config_from_args = {k:v for k,v in config_from_args.items()

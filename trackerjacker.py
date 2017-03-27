@@ -17,13 +17,14 @@ import ast
 import argparse
 import pprint
 import logging
+from contextlib import contextmanager
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
 
 __author__ = "Caleb Madrigal"
 __email__ = "caleb.madrigal@gmail.com"
 __license__ = "MIT"
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 def make_logger(log_path=None, log_level_str='INFO'):
@@ -348,7 +349,7 @@ class TrackerJacker:
         self.supported_channels = get_supported_channels(self.iface)
         if len(self.supported_channels) == 0:
             logger.error('Interface not found: {}'.format(self.iface))
-            sys.exit(2)
+            sys.exit(1)
 
         self.logger.info('Channels available on {}: {}'.format(self.iface, self.supported_channels))
 
@@ -376,6 +377,7 @@ class TrackerJacker:
 
         # Mapping stuff
         if self.do_map:
+            self.logger.info('Map output file: {}'.format(self.map_file))
             self.dot11_map = Dot11Map(self.logger)
             if os.path.exists(self.map_file):
                 self.dot11_map.load_from_file(self.map_file)
@@ -539,20 +541,18 @@ class TrackerJacker:
                         packet_lens = self.get_packet_lens(mac)
                         packet_lens.append((time.time(), len(pkt)))
 
-    def do_alert(self, beeps=5):
+    def do_alert(self):
         if self.alert_command:
             # Start alert_command in background process - fire and forget
+            print(chr(0x07))  # beep
             subprocess.Popen(self.alert_command)
-            print(chr(0x07))
 
     def mac_of_interest_detected(self, mac):
         if time.time() - self.last_alerted.get(mac, 9999999) < self.alert_cooldown:
             return
 
-        device_name = self.devices_to_watch[mac].get('name', mac)
-
-        self.logger.info('{}: Detected {}'.format(datetime.datetime.now(), device_name))
-
+        device_name = ' ({})'.format(self.devices_to_watch[mac]['name']) if name in self.devices_to_watch[mac] else ''
+        self.logger.info('{}: Detected {}'.format(datetime.datetime.now(), mac, device_name))
         self.do_alert()
         self.last_alerted[mac] = time.time()
 
@@ -603,8 +603,7 @@ def get_config():
               'channel_switch_scheme': 'round_robin',
               'time_per_channel': 2,
               'display_matching_packets': True,
-              'display_all_packets': False,
-             }
+              'display_all_packets': False}
 
     parser = argparse.ArgumentParser()
     # Modes
@@ -650,28 +649,27 @@ def get_config():
     # vars converts from namespace to dict
     args = parser.parse_args()
 
-    if args.do_enable_monitor_mode:
+    @contextmanager
+    def handle_interface_not_found():
         if not args.iface:
             print('You must specify the interface with the -i paramter', file=sys.stderr)
             sys.exit(1)
         try:
+            yield
+        except FileNotFoundError:
+            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
+            sys.exit(1)
+
+    if args.do_enable_monitor_mode:
+        with handle_interface_not_found():
             result_iface = monitor_mode_on(args.iface)
             print('Enabled monitor mode on {} as iface name: {}'.format(args.iface, result_iface))
             sys.exit(0)
-        except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
-            sys.exit(1)
     elif args.do_disable_monitor_mode:
-        if not args.iface:
-            print('You must specify the interface with the -i paramter', file=sys.stderr)
-            sys.exit(1)
-        try:
+        with handle_interface_not_found():
             result_iface = monitor_mode_off(args.iface)
             print('Disabled monitor mode on {}'.format(result_iface))
             sys.exit(0)
-        except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
-            sys.exit(1)
     elif args.mac_lookup:
         vendor = MacVendorDB().lookup(args.mac_lookup)
         if vendor:
@@ -683,17 +681,11 @@ def get_config():
         print(json.dumps(config, indent=4, sort_keys=True))
         sys.exit(0)
     elif args.set_channel:
-        if not args.iface:
-            print('You must specify the interface with the -i paramter', file=sys.stderr)
-            sys.exit(1)
-        try:
+        with handle_interface_not_found():
             channel = args.set_channel[0]
             switch_to_channel(args.iface, channel)
             print('Set channel to {} on {}'.format(channel, args.iface))
             sys.exit(0)
-        except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
-            sys.exit(1)
     
     macs_from_config = []
     aps_from_config = []

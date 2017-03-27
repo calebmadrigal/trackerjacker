@@ -1,33 +1,22 @@
 # trackerjacker
 
-Tracks WiFi devices by capturing raw 802.11 frames in monitor mode.
+Finds and tracks wifi devices through raw 802.11 monitoring.
 
 ### Example use-cases
 
+* Map out all the nearby wifi devices (and which devices are asspciated with which Access Points)
 * Track when a particular MAC is seen
-* Track when a camera sees motion
-* Track when traffic is happening on a particular AP
-* Find/track all connections on a particular AP
+* Track when a particular MAC sends some threshold of data in some time period
+* Track when traffic is happening on a particular Access Point
+* Find/track all connections on a particular Access Point
 
 ## How to use
 
-trackerjacker is configured via a few command-line switches and/or a config file (the path to which can be specified with the `-c` command-line switch).
+`trackerjacker` is configured via a few command-line switches and/or a config file (the path to which can be specified with the `-c` command-line switch).
 
 ### Command-line options
 
 ```
-# python3 trackerjacker.py -h
-usage: trackerjacker.py [-h] [--map] [--track] [--monitor-mode-on]
-                        [--monitor-mode-off] [--set-channel CHANNEL]
-                        [--mac-lookup MAC_LOOKUP] [--print-default-config]
-                        [-i IFACE] [-m DEVICES_TO_WATCH] [-a APS_TO_WATCH]
-                        [--channels-to-monitor CHANNELS_TO_MONITOR]
-                        [-t THRESHOLD_BYTES] [-w THRESHOLD_WINDOW]
-                        [--alert-command ALERT_COMMAND]
-                        [--display-all-packets] [--log-path LOG_PATH]
-                        [--log-level LOG_LEVEL] [-c CONFIG]
-
-optional arguments:
   -h, --help            show this help message and exit
   --map                 Map mode - output map to wifi_map.yaml
   --track               Track mode
@@ -87,6 +76,7 @@ Note that there are 7 "commands"/"modes" in trackerjacker. The 2 main modes are 
     python3 trackerjacker.py -m 8a:23:ab:75:8e:2b --alert-command "date >> /tmp/test.txt"
 
 Notes:
+
 * This monitors for the MAC address: `8a:23:ab:75:8e:2b`
 * When detected, the current time is appended to `/tmp/test.txt`
 
@@ -113,6 +103,7 @@ And here's the example config file called `my_config.json`:
 ```
 
 A few notes about this:
+
 * `threshold_bytes` is the default threshold of bytes which, if seen, a causes the alert function to be called
 * `threshold_window` is the time window in which the `threshold_bytes` is analyzed.
 * `devices_to_watch` is a list which can contain either strings (representing MACs) or dicts (which allow the specification of a `name` and `threshold`)

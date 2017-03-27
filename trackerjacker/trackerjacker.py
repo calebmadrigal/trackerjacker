@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-trackerjacker
-
-Raw 802.11 frame interception tool.
-"""
-
 import os
 import re
 import time
@@ -20,11 +14,6 @@ import logging
 from contextlib import contextmanager
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
-
-__author__ = "Caleb Madrigal"
-__email__ = "caleb.madrigal@gmail.com"
-__license__ = "MIT"
-__version__ = "0.5.0"
 
 
 def make_logger(log_path=None, log_level_str='INFO'):
@@ -777,14 +766,17 @@ def get_config():
 
     return config
 
-if __name__ == '__main__':
+
+def main():
     config = get_config()
-    trackerjacker = TrackerJacker(**config)
+    tj = TrackerJacker(**config)
 
     try:
-        trackerjacker.start()
+        tj.start()
     except KeyboardInterrupt:
         print('Stopping...')
     finally:
-        trackerjacker.stop()
+        tj.stop()
 
+if __name__ == '__main__':
+    main()

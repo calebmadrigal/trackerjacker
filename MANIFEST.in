@@ -1,1 +1,4 @@
-include README.md LICENSE requirements.txt trackerjacker/oui.txt
+include README.md
+include LICENSE
+include requirements.txt
+include trackerjacker/oui.txt

@@ -31,7 +31,8 @@ def make_logger(log_path=None, log_level_str='INFO'):
         log_handler = logging.StreamHandler(sys.stdout)
         log_handler.setFormatter(logging.Formatter('%(message)s'))
     logger.addHandler(log_handler)
-    log_level = logging.getLevelName(log_level_str.upper())
+    log_name_to_level = {'DEBUG': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40, 'CRITICAL': 50}
+    log_level = log_name_to_level.get(log_level_str.upper(), 20)
     logger.setLevel(log_level)
     return logger
 

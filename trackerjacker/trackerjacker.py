@@ -515,9 +515,9 @@ class TrackerJacker:
         # Only worry about switching channels if we are monitoring 2 or more
         if len(self.channels_to_monitor) > 1:
             while True:
+                time.sleep(self.time_per_channel)
                 self.channel_switch_func()
                 self.last_channel_switch_time = time.time()
-                time.sleep(self.time_per_channel)
 
     def get_next_channel_based_on_traffic(self):
         total_count = sum((count for channel, count in self.msgs_per_channel.items()))

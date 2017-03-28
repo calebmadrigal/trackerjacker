@@ -456,14 +456,14 @@ class TrackerJacker:
             except Exception:
                 # If we fail to find the specified (or default) interface, look to see if there is an
                 # interface with 'mon' in the name, and if so, try it.
-                self.logger.debug('Interface not found: {}; searching for valid monitor interface...'.format(iface))
+                self.logger.warning('Could not enable monitor mode on enterface: {}'.format(iface))
                 mon_iface = find_mon_iface()
                 self.original_iface_name = None
                 if mon_iface:
                     self.iface = mon_iface
                     self.logger.debug('Going with interface: {}'.format(self.iface))
                 else:
-                    self.logger.error('Could not find monitor interface')
+                    self.logger.error('And could not find monitor interface')
                     sys.exit(1)
 
     def configure_channels(self, channels_to_monitor, channel_switch_scheme):

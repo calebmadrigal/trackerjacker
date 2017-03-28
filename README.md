@@ -147,3 +147,10 @@ Note that trackerjacker will automatically enable/disable monitor mode if necess
 
 Note that trackerjacker will automatically switch channels as necessary during normal map/track actions. This option is just useful if you want to set the channel on an interface for use with other applications.
 
+## Roadmap
+
+- [x] Hosted in PyPI
+- [ ] Radio signal strength
+- [ ] "Jack" mode - deauth attacks
+- [ ] Mac (OS X) support
+

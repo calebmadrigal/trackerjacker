@@ -2,7 +2,83 @@
 
 Finds and tracks wifi devices through raw 802.11 monitoring.
 
-### Example use-cases
+## Install
+
+    pip3 install trackerjacker
+
+## Usage
+
+Find detailed usage like this:
+
+	trackerjacker -h
+
+There are 2 major usage modes for `trackerjacker`: **map** mode and **track** mode:
+
+### Map mode example
+
+Map mode is used to find the Access Points and Devices within the range. Think of it like `nmap` for raw 802.11 mode.
+
+    $ trackerjacker --map -i wlan0mon
+    Channels available on wlan0mon: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104, 108, 110, 112]
+    Map output file: wifi_map.yaml
+    MAC found: 90:48:9a:29:85:8c, Channel: 1
+    MAC found: ff:ff:ff:ff:ff:ff, Channel: 1
+    SSID found: EDWARDS23, BSSID: 90:48:9a:29:85:8c, Channel: 1
+    MAC found: 54:e4:bd:8d:a6:b0, Channel: 1
+    MAC found: 9c:d2:1e:dc:ed:06, Channel: 1
+    MAC found: 00:00:00:00:00:00, Channel: 1
+    MAC found: 38:3b:c8:fe:15:3f, Channel: 1
+    SSID found: Castle Grey Skull, BSSID: 38:3b:c8:fe:15:3f, Channel: 1
+    MAC found: 38:3b:c8:fe:15:3d, Channel: 1
+    MAC found: cc:0d:ec:27:de:fb, Channel: 1
+    SSID found: [NULL][NULL][NULL][NULL][NULL][NULL][NULL], BSSID: cc:0d:ec:27:de:fb, Channel: 1
+    MAC found: 58:67:1a:f6:80:04, Channel: 1
+
+Map mode outputs `wifi_map.yaml`, which looks something like this:
+
+    # trackerjacker map
+	1:  # channel
+	  "38:3b:c8:fe:15:3e":  # bssid; 2Wire Inc
+		ssid: "ATT8ais9uw"
+		macs:
+		  - "38:3b:c8:fe:15:3d"  # 2Wire Inc
+	  "38:3b:c8:fe:15:3f":  # bssid; 2Wire Inc
+		ssid: "Castle Grey Skull"
+		macs:
+	  "44:e1:37:52:d5:20":  # bssid; ARRIS Group, Inc.
+		ssid: "ATT760"
+		macs:
+	  "90:48:9a:29:85:8c":  # bssid; Hon Hai Precision Ind. Co.,Ltd.
+		ssid: "EDWARDS23"
+		macs:
+		  - "54:e4:bd:8d:a6:b0"  # FN-LINK TECHNOLOGY LIMITED
+		  - "9c:d2:1e:dc:ed:06"  # Hon Hai Precision Ind. Co.,Ltd.
+	  "cc:0d:ec:27:de:fb":  # bssid; Cisco SPVTG
+		ssid: "[NULL][NULL][NULL][NULL][NULL][NULL][NULL]"
+		macs:
+	  "f8:35:dd:43:1a:25":  # bssid; Gemtek Technology Co., Ltd.
+		ssid: "MOTOROLA-903E1"
+		macs:
+	  "unassociated":  # bssid; 
+		macs:
+		  - "2c:54:cf:bd:a7:45"  # LG Electronics (Mobile Communications)
+		  - "58:67:1a:f6:80:04"  # Barnes&Noble
+
+### Track mode example
+
+Track mode allows you to specify some number of MAC addresses to watch, and if the specified devices exceeds the threshold (in bytes), an alert will be triggered.
+
+    $ trackerjacker -i wlan0mon --track -m 7C:70:BC:57:F0:77 -t 450000 --alert-command "/root/trigger_alarm.sh" --channels-to-monitor 11
+    Channels available on wlan0mon: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104, 108, 110, 112]
+    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 0
+    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 599
+    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 647
+    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 0
+    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 541386
+    2017-03-27 22:22:19.155201: Detected 7c:70:bc:57:f0:77
+		Congratulations! You've fired the alarm_triggered event
+
+## Example use-cases
 
 * Map out all the nearby wifi devices (and which devices are asspciated with which Access Points)
 * Track when a particular MAC is seen
@@ -10,66 +86,7 @@ Finds and tracks wifi devices through raw 802.11 monitoring.
 * Track when traffic is happening on a particular Access Point
 * Find/track all connections on a particular Access Point
 
-## How to use
-
-`trackerjacker` is configured via a few command-line switches and/or a config file (the path to which can be specified with the `-c` command-line switch).
-
-### Command-line options
-
-```
-  -h, --help            show this help message and exit
-  --map                 Map mode - output map to wifi_map.yaml
-  --track               Track mode
-  --monitor-mode-on     Enables monitor mode on the specified interface and
-                        exit
-  --monitor-mode-off    Disables monitor mode on the specified interface and
-                        exit
-  --set-channel CHANNEL
-                        Set the specified wireless interface to the specified
-                        channel and exit
-  --mac-lookup MAC_LOOKUP
-                        Lookup the vendor of the specified MAC address and
-                        exit
-  --print-default-config
-                        Print boilerplate config file and exit
-  -i IFACE, --interface IFACE
-                        Network interface to use
-  -m DEVICES_TO_WATCH, --macs DEVICES_TO_WATCH
-                        MAC(s) to track; comma separated for multiple
-  -a APS_TO_WATCH, --access-points APS_TO_WATCH
-                        Access point(s) to track - specified by BSSID; comma
-                        separated for multiple
-  --channels-to-monitor CHANNELS_TO_MONITOR
-                        Channels to monitor; comma separated for multiple
-  -t THRESHOLD_BYTES, --threshold THRESHOLD_BYTES
-                        Threshold of packets in time window which causes alert
-  -w THRESHOLD_WINDOW, --time-window THRESHOLD_WINDOW
-                        Time window (in seconds) which alert threshold is
-                        applied to
-  --alert-command ALERT_COMMAND
-                        Command to execute upon alert
-  --display-all-packets
-                        If true, displays all packets matching filters
-  --log-path LOG_PATH   Log path; default is stdout
-  --log-level LOG_LEVEL
-                        Log level; Options: DEBUG, INFO, WARNING, ERROR,
-                        CRITICAL
-  -c CONFIG, --config CONFIG
-                        Path to config json file; For example config file, use
-                        --print-default-config
-```
-
-#### Major commands
-
-Note that there are 7 "commands"/"modes" in trackerjacker. The 2 main modes are `--map` and `--track`, and there 5 other "do something and quit" commands:
-
-* `--map`
-* `--track`
-* `--monitor-mode-on`
-* `--monitor-mode-off`
-* `--set-channel`
-* `--mac-lookup`
-* `--print-default-config`
+## Example usage
 
 ### Example: configuring with command-line args
 

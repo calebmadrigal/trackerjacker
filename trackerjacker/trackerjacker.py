@@ -397,7 +397,7 @@ class TrackerJacker:
                        channels_to_monitor=None,
                        channel_switch_scheme='default',
                        time_per_channel=2,
-                       display_matching_packets=True,
+                       display_matching_packets=False,
                        display_all_packets=False,
                        # map args
                        do_map=True,
@@ -626,7 +626,7 @@ def get_config():
               'channels_to_monitor': None,
               'channel_switch_scheme': 'round_robin',
               'time_per_channel': 2,
-              'display_matching_packets': True,
+              'display_matching_packets': False,
               'display_all_packets': False}
 
     parser = argparse.ArgumentParser()

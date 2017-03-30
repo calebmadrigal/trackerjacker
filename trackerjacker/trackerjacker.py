@@ -470,7 +470,7 @@ class TrackerJacker:
         # Find supported channels
         self.supported_channels = get_supported_channels(self.iface)
         if len(self.supported_channels) == 0:
-            logger.error('Interface not found: {}'.format(self.iface))
+            self.logger.error('Interface not found: {}'.format(self.iface))
             sys.exit(1)
 
         self.logger.info('Channels available on {}: {}'.format(self.iface, self.supported_channels))

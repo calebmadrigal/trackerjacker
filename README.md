@@ -2,6 +2,8 @@
 
 Finds and tracks wifi devices through raw 802.11 monitoring.
 
+PyPI page: https://pypi.python.org/pypi/trackerjacker
+
 ## Install
 
     pip3 install trackerjacker

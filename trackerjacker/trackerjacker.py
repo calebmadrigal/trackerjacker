@@ -156,6 +156,12 @@ class Dot11Frame:
         if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
             self.ssid = frame[Dot11Elt].info.decode().replace('\x00', '[NULL]')
 
+        if frame.haslayer(RadioTap):
+            self.signal_strength = frame[RadioTap].dbm_antsignal
+        else:
+            self.signal_strength = 0
+            self.channel = 0
+
     def type_name(self):
         if self.frame.type == 0:
             return 'management'
@@ -167,8 +173,8 @@ class Dot11Frame:
             return 'unknown'
 
     def __str__(self):
-        return 'Dot11 (type={}, from={}, to={}, bssid={}, ssid={})'.format(
-               self.type_name(), self.src, self.dst, self.bssid, self.ssid)
+        return 'Dot11 (type={}, from={}, to={}, bssid={}, ssid={}, signal_strength={})'.format(
+               self.type_name(), self.src, self.dst, self.bssid, self.ssid, self.signal_strengh)
 
     def __repr__(self):
         return self.__str__()
@@ -178,24 +184,24 @@ class Dot11Map:
     """ Builds/represents a map of this structure (and saves to yaml files):
 
     1:  # channel
-      "90:35:ab:1c:25:19":  # bssid; Linksys
+      "90:35:ab:1c:25:19":  # bssid; Linksys; -75dBm
         ssid: "hacker"
         macs:
-          - "00:03:7f:84:f8:09"  # Dropcam
-          - "01:00:5e:00:00:fb"  # Apple
+          - "00:03:7f:84:f8:09"  # Dropcam; -49dBm
+          - "01:00:5e:00:00:fb"  # Apple; -60dBm
       "unassociated":
         macs:
-          - "34:23:ba:fd:5e:24"  # Sony
-          - "e8:50:8b:36:5e:bb"  # Unknown
+          - "34:23:ba:fd:5e:24"  # Sony; -67dBm
+          - "e8:50:8b:36:5e:bb"  # Unknown; -76dBm
     5:  # channel
-      "34:89:ab:c4:15:69":  # bssid; 
+      "34:89:ab:c4:15:69":  # bssid; -22dBm
         ssid: "hello-world"
         macs:
-          - "b8:27:eb:d6:cc:e9"  # Samsung
-          - "d8:49:2f:30:68:17"  # Apple
+          - "b8:27:eb:d6:cc:e9"  # Samsung; -30dBm
+          - "d8:49:2f:30:68:17"  # Apple; -29dBm
       "unassociated":
         macs:
-          - "34:23:ba:fd:5e:24"  # Unknown
+          - "34:23:ba:fd:5e:24"  # Unknown; -25dBm
     """
     MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
 
@@ -216,7 +222,7 @@ class Dot11Map:
 
         if dot11_frame.bssid and dot11_frame.bssid not in Dot11Map.MACS_TO_IGNORE:
             if dot11_frame.bssid not in chan_to_bssid:
-                chan_to_bssid[dot11_frame.bssid] = {'ssid': None, 'macs': set()}
+                chan_to_bssid[dot11_frame.bssid] = {'ssid': None, 'macs': set(), 'signal': None}
             bssid_node = chan_to_bssid[dot11_frame.bssid]
 
             # Associate ssid with bssid entry if no ssid has already been set
@@ -229,6 +235,9 @@ class Dot11Map:
                 self.bssid_to_ssid[dot11_frame.bssid] = bssid_node['ssid']
 
             bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - set([dot11_frame.bssid])
+
+            if dot11_frame.signal_strength:
+                bssid_node['signal'] = dot11_frame.signal_strength
 
             # Now that each of these MACs have been associated with this bssid, they are no longer 'unassociated'
             self.associated_macs |= dot11_frame.macs
@@ -261,7 +270,11 @@ class Dot11Map:
                 f.write('{}:  # channel\n'.format(channel))
                 for bssid in sorted(self.map_data[channel]):
                     bssid_vendor = self.mac_vendor_db.lookup(bssid)
-                    f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
+                    if 'signal' in self.map_data[channel][bssid]:
+                        bssid_signal = self.map_data[channel][bssid]['signal']
+                        f.write('  "{}":  # bssid; {}; {}dBm\n'.format(bssid, bssid_vendor, bssid_signal))
+                    else:
+                        f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
                     # Wrote SSID if it exists for this SSID
                     ssid = self.map_data[channel][bssid]['ssid']
                     if not ssid:

@@ -152,7 +152,7 @@ Note that trackerjacker will automatically switch channels as necessary during n
 ## Roadmap
 
 - [x] Hosted in PyPI
-- [ ] Radio signal strength
+- [x] Radio signal strength
 - [ ] "Jack" mode - deauth attacks
 - [ ] Mac (OS X) support
 

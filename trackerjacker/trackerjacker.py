@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
+# pylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915
 
 import os
-import re
+import sys
 import time
-import itertools
-import threading
-import datetime
 import json
-import ast
-import argparse
+import random
 import pprint
 import logging
+import datetime
+import argparse
+import itertools
+import threading
+import subprocess
 from contextlib import contextmanager
+
+import device_management
+
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
-from scapy.all import *
+try:
+    import scapy.all as scapy
+except ModuleNotFoundError:
+    logging.getLogger("scapy3k.runtime").setLevel(logging.ERROR)
+    import scapy3k.all as scapy
 
 
 def make_logger(log_path=None, log_level_str='INFO'):
@@ -35,69 +44,6 @@ def make_logger(log_path=None, log_level_str='INFO'):
     log_level = log_name_to_level.get(log_level_str.upper(), 20)
     logger.setLevel(log_level)
     return logger
-
-
-def get_physical_name(iface_name):
-    physical_name= ''
-    with open('/sys/class/net/{}/phy80211/index'.format(iface_name, 'r')) as f:
-        physical_name = 'phy{}'.format(f.read().strip())
-    return physical_name
-
-
-def monitor_mode_on(iface):
-    physical_name = get_physical_name(iface)
-    mon_iface_name = '{}mon'.format(iface)
-    subprocess.check_call('iw phy {} interface add {} type monitor'.format(physical_name, mon_iface_name), shell=True)
-    subprocess.check_call('iw dev {} del'.format(iface), shell=True)
-    subprocess.check_call('ifconfig {} up'.format(mon_iface_name), shell=True)
-    return mon_iface_name
-
-
-def monitor_mode_off(iface):
-    # If someone passes in an interface like 'wlan0mon', assume it's the monitor name
-    if 'mon' in iface:
-        mon_iface_name = iface
-        iface = iface.replace('mon', '')
-    else:
-        mon_iface_name = '{}mon'.format(iface)
-
-    physical_name = get_physical_name(mon_iface_name)
-    subprocess.check_call('iw phy {} interface add {} type managed'.format(physical_name, iface), shell=True)
-    subprocess.check_call('iw dev {} del'.format(mon_iface_name), shell=True)
-    return mon_iface_name
-
-
-def find_mon_iface():
-    """ Returns any interfaces with 'mon' in their name. """
-    ifconfig_output = subprocess.check_output('ifconfig', shell=True).decode()
-    lines = [line for line in ifconfig_output.split('\n')]
-    for line in lines:
-        match = re.match(r'(\w+):', line)
-        if match:
-            iface = match.groups()[0]
-            if iface.find('mon') >= 0:
-                return iface
-    return None
-
-
-def get_supported_channels(iface):
-    iwlist_output = subprocess.check_output('iwlist {} freq'.format(iface), shell=True).decode()
-    lines = [line.strip() for line in iwlist_output.split('\n')]
-    channel_regex = re.compile(r'Channel\W+(\d+)')
-    channels = []
-    for line in lines:
-        m = re.search(channel_regex, line)
-        if m:
-            c = m.groups()[0]
-            channels.append(c)
-
-    # '07' -> 7, and sort
-    channels = list(sorted(list(set([int(chan) for chan in channels]))))
-    return channels
-
-
-def switch_to_channel(iface, channel_num):
-    subprocess.call('iw dev {} set channel {}'.format(iface, channel_num), shell=True)
 
 
 class MacVendorDB:
@@ -128,6 +74,8 @@ class Dot11Frame:
         self.frame = frame
         self.bssid = None
         self.ssid = None
+        self.signal_strength = 0
+        self.channel = 0
 
         # DS = Distribution System; wired infrastructure connecting multiple BSSs to form an ESS
         # Needed to determine the meanings of addr1-4
@@ -153,14 +101,13 @@ class Dot11Frame:
             self.bssid = frame.addr3
             self.macs = {frame.addr1, frame.addr2}
 
-        if frame.haslayer(Dot11Elt) and (frame.haslayer(Dot11Beacon) or frame.haslayer(Dot11ProbeResp)):
-            self.ssid = frame[Dot11Elt].info.decode().replace('\x00', '[NULL]')
+        if (frame.haslayer(scapy.Dot11Elt) and
+                (frame.haslayer(scapy.Dot11Beacon) or frame.haslayer(scapy.Dot11ProbeResp))):
 
-        if frame.haslayer(RadioTap):
-            self.signal_strength = frame[RadioTap].dbm_antsignal
-        else:
-            self.signal_strength = 0
-            self.channel = 0
+            self.ssid = frame[scapy.Dot11Elt].info.decode().replace('\x00', '[NULL]')
+
+        if frame.haslayer(scapy.RadioTap):
+            self.signal_strength = frame[scapy.RadioTap].dbm_antsignal
 
     def type_name(self):
         if self.frame.type == 0:
@@ -169,12 +116,11 @@ class Dot11Frame:
             return 'control'
         elif self.frame.type == 2:
             return 'data'
-        else:
-            return 'unknown'
+        return 'unknown'
 
     def __str__(self):
         return 'Dot11 (type={}, from={}, to={}, bssid={}, ssid={}, signal_strength={})'.format(
-               self.type_name(), self.src, self.dst, self.bssid, self.ssid, self.signal_strengh)
+            self.type_name(), self.src, self.dst, self.bssid, self.ssid, self.signal_strength)
 
     def __repr__(self):
         return self.__str__()
@@ -298,18 +244,21 @@ class Dot11Map:
             with open(file_path, 'r') as f:
                 loaded_map = yaml.load(f.read())
 
-            # Cleanup and make the list of MACs be a set of MACs
-            for channel in loaded_map:
-                for bssid in loaded_map[channel]:
-                    bssid_node = loaded_map[channel][bssid]
-                    if 'ssid' not in bssid_node:
-                        bssid_node['ssid'] = None
+            if loaded_map:
+                # Cleanup and make the list of MACs be a set of MACs
+                for channel in loaded_map:
+                    for bssid in loaded_map[channel]:
+                        bssid_node = loaded_map[channel][bssid]
+                        if 'ssid' not in bssid_node:
+                            bssid_node['ssid'] = None
 
-                    # If key not present or value is None
-                    if 'macs' not in bssid_node or not bssid_node['macs']:
-                        bssid_node['macs'] = set()
-                    else:
-                        bssid_node['macs'] = set(bssid_node['macs'])
+                        # If key not present or value is None
+                        if 'macs' not in bssid_node or not bssid_node['macs']:
+                            bssid_node['macs'] = set()
+                        else:
+                            bssid_node['macs'] = set(bssid_node['macs'])
+            else:
+                loaded_map = {}
 
             self.map_data = loaded_map
             return loaded_map
@@ -320,15 +269,20 @@ class Dot11Map:
 
 
 class Dot11Tracker:
-    def __init__(self, logger,
-                       devices_to_watch,
-                       aps_to_watch,
-                       threshold_bytes,
-                       threshold_window,
-                       alert_cooldown,
-                       alert_command):
+    # self.__dict__.update(locals()) breaks pylint for member variables, so disable those warnings...
+    # pylint: disable=E1101, W0613
+    def __init__(self,
+                 logger,
+                 devices_to_watch,
+                 aps_to_watch,
+                 threshold_bytes,
+                 threshold_window,
+                 alert_cooldown,
+                 alert_command):
 
-        # self.arg = arg for every arg
+        self.running = False
+
+        # Same as self.arg = arg for every arg
         self.__dict__.update(locals())
 
         self.devices_to_watch = {dev.pop('mac').lower(): dev for dev in devices_to_watch if 'mac' in dev}
@@ -336,6 +290,12 @@ class Dot11Tracker:
         self.aps_to_watch = {ap.pop('bssid').lower(): ap for ap in aps_to_watch if 'bssid' in ap}
         self.aps_to_watch_set = set([bssid for bssid in self.aps_to_watch.keys()])
         #self.aps_ssids_to_watch_set = set([ap['ssid'] for ap in aps_to_watch if 'ssid' in ap])  # TODO: Use this
+
+        if self.aps_to_watch_set:
+            self.logger.info('Only monitoring packets from these Access Points: %s', self.aps_to_watch_set)
+
+        if self.devices_to_watch_set:
+            self.logger.info('Only monitoring packets from these Access Points: %s', self.devices_to_watch_set)
 
         self.packet_lens = {}
         self.packet_lens_lock = threading.Lock()
@@ -352,7 +312,6 @@ class Dot11Tracker:
             packet_lens.append((time.time(), num_bytes))
 
     def get_bytes_in_time_window(self, mac):
-        still_in_windows = 0
         with self.packet_lens_lock:
             packet_lens = self.get_packet_lens(mac)
             still_in_window = list(itertools.takewhile(lambda i: time.time()-i[0] < self.threshold_window, packet_lens))
@@ -362,8 +321,7 @@ class Dot11Tracker:
     def get_threshold(self, mac):
         if mac in self.devices_to_watch and 'threshold' in self.devices_to_watch[mac]:
             return self.devices_to_watch[mac]['threshold']
-        else:
-            return self.threshold_bytes
+        return self.threshold_bytes
 
     def do_alert(self):
         if self.alert_command:
@@ -376,7 +334,7 @@ class Dot11Tracker:
             return
 
         device_name = ' ({})'.format(self.devices_to_watch[mac]['name']) if 'name' in self.devices_to_watch[mac] else ''
-        self.logger.info('{}: Detected {}'.format(datetime.datetime.now(), mac, device_name))
+        self.logger.info('{}: Detected {} [{}]'.format(datetime.datetime.now(), mac, device_name))
         self.do_alert()
         self.last_alerted[mac] = time.time()
 
@@ -404,27 +362,28 @@ class Dot11Tracker:
 
 
 class TrackerJacker:
-    def __init__(self, log_path=None,
-                       log_level='INFO',
-                       iface='wlan0',
-                       channels_to_monitor=None,
-                       channel_switch_scheme='default',
-                       time_per_channel=2,
-                       display_matching_packets=False,
-                       display_all_packets=False,
-                       # map args
-                       do_map=True,
-                       map_file='wifi_map.yaml',
-                       map_save_period=10,  # seconds
-                       macs_to_watch=(),
-                       # track args
-                       do_track=True,
-                       devices_to_watch=(),
-                       aps_to_watch=(),
-                       threshold_bytes=1,
-                       threshold_window=10,  # seconds
-                       alert_cooldown=30,
-                       alert_command=None):
+    # pylint: disable=R0902
+    def __init__(self,
+                 log_path=None,
+                 log_level='INFO',
+                 iface=None,
+                 channels_to_monitor=None,
+                 channel_switch_scheme='default',
+                 time_per_channel=2,
+                 display_matching_packets=False,
+                 display_all_packets=False,
+                 # map args
+                 do_map=True,
+                 map_file='wifi_map.yaml',
+                 map_save_period=10,  # seconds
+                 # track args
+                 do_track=True,
+                 devices_to_watch=(),
+                 aps_to_watch=(),
+                 threshold_bytes=1,
+                 threshold_window=10,  # seconds
+                 alert_cooldown=30,
+                 alert_command=None):
 
         self.do_map = do_map
         self.do_track = do_track
@@ -435,6 +394,11 @@ class TrackerJacker:
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = MacVendorDB()
 
+        self.need_to_disable_monitor_mode_on_exit = False
+        self.last_channel_switch_time = 0
+        self.num_msgs_received_this_channel = 0
+        self.current_channel = 1
+
         self.logger = make_logger(log_path, log_level)
         self.configure_interface(iface)
         self.configure_channels(channels_to_monitor, channel_switch_scheme)
@@ -443,7 +407,7 @@ class TrackerJacker:
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
         if self.do_map:
-            self.logger.info('Map output file: {}'.format(self.map_file))
+            self.logger.info('Map output file: %s', self.map_file)
             self.dot11_map = Dot11Map(self.logger)
             if os.path.exists(self.map_file):
                 self.dot11_map.load_from_file(self.map_file)
@@ -454,44 +418,52 @@ class TrackerJacker:
                                               threshold_bytes, threshold_window, alert_cooldown, alert_command)
 
     def configure_interface(self, iface):
-        # If 'mon' is in the interface name, assume it's already in interface mode
-        # Otherwise, enable monitor mode and call monitor iface name iface + 'mon'
-        # E.g. if iface is 'wlan0', create a monitor mode interface called 'wlan0mon'
-        if 'mon' in iface:
+        # If no device specified, see if there is a device already in monitor mode, and go with it...
+        if not iface:
+            monitor_mode_iface = device_management.find_first_monitor_interface()
+            if monitor_mode_iface:
+                self.iface = monitor_mode_iface
+                self.logger.debug('Using monitor mode interface: %s', self.iface)
+            else:
+                self.logger.error('Please specify interface with -i switch')
+                sys.exit(1)
+
+        # If specified interface is already in monitor mode, do nothing... just go with it
+        elif device_management.is_monitor_mode_device(iface):
             self.iface = iface
-            self.original_iface_name = None
-            self.logger.debug('Assuming iface is already in monitor mode...')
+            self.logger.debug('Interface %s is already in monitor mode...', iface)
+
+        # Otherwise, try to put specified interface into monitor mode, but remember to undo that when done...
         else:
             try:
-                self.iface = monitor_mode_on(iface)
-                self.original_iface_name = iface
-                self.logger.debug('Enabled monitor mode on {} as iface name: {}'.format(iface, self.iface))
+                device_management.monitor_mode_on(iface)
+                self.iface = iface
+                self.need_to_disable_monitor_mode_on_exit = True
+                self.logger.debug('Enabled monitor mode on %s', iface)
             except Exception:
-                # If we fail to find the specified (or default) interface, look to see if there is an
-                # interface with 'mon' in the name, and if so, try it.
-                self.logger.warning('Could not enable monitor mode on enterface: {}'.format(iface))
-                mon_iface = find_mon_iface()
-                self.original_iface_name = None
+                # If we fail to find the specified (or default) interface, look to see if there is a monitor interface
+                self.logger.warning('Could not enable monitor mode on enterface: %s', iface)
+                mon_iface = device_management.find_first_monitor_interface()
                 if mon_iface:
                     self.iface = mon_iface
-                    self.logger.debug('Going with interface: {}'.format(self.iface))
+                    self.logger.debug('Going with interface: %s', self.iface)
                 else:
-                    self.logger.error('And could not find monitor interface')
+                    self.logger.error('And could not find a monitor interface')
                     sys.exit(1)
 
     def configure_channels(self, channels_to_monitor, channel_switch_scheme):
         # Find supported channels
-        self.supported_channels = get_supported_channels(self.iface)
-        if len(self.supported_channels) == 0:
-            self.logger.error('Interface not found: {}'.format(self.iface))
+        self.supported_channels = device_management.get_supported_channels(self.iface)
+        if not self.supported_channels:
+            self.logger.error('Interface not found: %s', self.iface)
             sys.exit(1)
 
-        self.logger.info('Channels available on {}: {}'.format(self.iface, self.supported_channels))
+        self.logger.info('Channels available on %s: %s', self.iface, self.supported_channels)
 
         if channels_to_monitor:
             channels_to_monitor_set = set([int(c) for c in channels_to_monitor])
             if len(channels_to_monitor_set & set(self.supported_channels)) != len(channels_to_monitor_set):
-                self.logger.error('Not all of channels to monitor are supported by {}'.format(self.iface))
+                self.logger.error('Not all of channels to monitor are supported by %s', self.iface)
                 self.restore_interface()
                 sys.exit(1)
             self.channels_to_monitor = channels_to_monitor
@@ -501,8 +473,10 @@ class TrackerJacker:
             self.current_channel = self.supported_channels[0]
 
         if channel_switch_scheme == 'default':
-            if self.do_map: channel_switch_scheme = 'round_robin'
-            else: channel_switch_scheme = 'traffic_based'
+            if self.do_map:
+                channel_switch_scheme = 'round_robin'
+            else:
+                channel_switch_scheme = 'traffic_based'
 
         if channel_switch_scheme == 'traffic_based':
             self.channel_switch_func = self.switch_channel_based_on_traffic
@@ -562,22 +536,23 @@ class TrackerJacker:
         self.switch_to_channel(next_channel)
 
     def switch_to_channel(self, channel_num, force=False):
-        self.logger.debug('Switching to channel {}'.format(channel_num))
+        self.logger.debug('Switching to channel %s', channel_num)
         if channel_num == self.current_channel and not force:
             return
-        switch_to_channel(self.iface, channel_num)
+        device_management.switch_to_channel(self.iface, channel_num)
         self.current_channel = channel_num
 
     def process_packet(self, pkt):
-        if pkt.haslayer(Dot11):
+        if pkt.haslayer(scapy.Dot11):
             dot11_frame = Dot11Frame(pkt)
             self.num_msgs_received_this_channel += 1
 
             if self.display_all_packets:
                 print('\t', pkt.summary())
 
-            if len(self.aps_to_watch_set) > 0:
+            if self.aps_to_watch_set:
                 if dot11_frame.bssid not in self.aps_to_watch_set:
+                    print('packet not in aps to watch')
                     return
 
             # See if any MACs we care about are here
@@ -598,17 +573,17 @@ class TrackerJacker:
                     self.map_last_save = time.time()
 
     def restore_interface(self):
-        if self.original_iface_name:
-            monitor_mode_off(self.iface)
-            self.logger.debug('Disabled monitor mode for interface: {}'.format(self.original_iface_name))
+        if self.need_to_disable_monitor_mode_on_exit:
+            device_management.monitor_mode_off(self.iface)
+            self.logger.debug('Disabled monitor mode for interface: %s', self.iface)
 
     def start(self):
-        self.logger.debug('Starting monitoring on {}'.format(self.iface))
+        self.logger.debug('Starting monitoring on %s', self.iface)
 
         if self.do_track:
             self.dot11_tracker.startTracking()
 
-        sniff(iface=self.iface, prn=self.process_packet, store=0)
+        scapy.sniff(iface=self.iface, prn=self.process_packet, store=0)
 
     def stop(self):
         self.restore_interface()
@@ -625,7 +600,7 @@ def get_config():
     # Default config
     config = {'log_path': None,
               'log_level': 'INFO',
-              'iface': 'wlan0',
+              'iface': None,
               'devices_to_watch': [],
               'aps_to_watch': [],
               'threshold_window': 10,
@@ -661,7 +636,7 @@ def get_config():
 
     # Normal switches
     parser.add_argument('-i', '--interface', type=str, dest='iface',
-                        help='Network interface to use')
+                        help='Network interface to use; if empty, try to find monitor inferface')
     parser.add_argument('-m', '--macs', type=str, dest='devices_to_watch',
                         help='MAC(s) to track; comma separated for multiple')
     parser.add_argument('-a', '--access-points', type=str, dest='aps_to_watch',
@@ -699,13 +674,13 @@ def get_config():
 
     if args.do_enable_monitor_mode:
         with handle_interface_not_found():
-            result_iface = monitor_mode_on(args.iface)
-            print('Enabled monitor mode on {} as iface name: {}'.format(args.iface, result_iface))
+            device_management.monitor_mode_on(args.iface)
+            print('Enabled monitor mode on {}'.format(args.iface))
             sys.exit(0)
     elif args.do_disable_monitor_mode:
         with handle_interface_not_found():
-            result_iface = monitor_mode_off(args.iface)
-            print('Disabled monitor mode on {}'.format(result_iface))
+            device_management.monitor_mode_off(args.iface)
+            print('Disabled monitor mode on {}'.format(args.iface))
             sys.exit(0)
     elif args.mac_lookup:
         vendor = MacVendorDB().lookup(args.mac_lookup)
@@ -720,10 +695,10 @@ def get_config():
     elif args.set_channel:
         with handle_interface_not_found():
             channel = args.set_channel[0]
-            switch_to_channel(args.iface, channel)
+            device_management.switch_to_channel(args.iface, channel)
             print('Set channel to {} on {}'.format(channel, args.iface))
             sys.exit(0)
-    
+
     macs_from_config = []
     aps_from_config = []
 
@@ -738,10 +713,10 @@ def get_config():
                 print('Invalid keys found in config file: {}'.format(invalid_keys), file=sys.stderr)
                 sys.exit(1)
 
-            macs_from_config = [{'mac': dev} if type(dev)==str else dev
+            macs_from_config = [{'mac': dev} if isinstance(dev, str) else dev
                                 for dev in config_from_file.pop('devices_to_watch', [])]
-            aps_from_config = [{'bssid': ap} if type(ap)==str else ap
-                                for ap in config_from_file.pop('aps_to_watch', [])]
+            aps_from_config = [{'bssid': ap} if isinstance(ap, str) else ap
+                               for ap in config_from_file.pop('aps_to_watch', [])]
 
             config.update(config_from_file)
             print('Loaded configuration from {}'.format(args.config))
@@ -762,7 +737,7 @@ def get_config():
                        'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
 
     config_from_args = vars(args)
-    config_from_args = {k:v for k,v in config_from_args.items()
+    config_from_args = {k: v for k, v in config_from_args.items()
                         if v is not None and k not in non_config_args}
 
     # Config from args trumps everything

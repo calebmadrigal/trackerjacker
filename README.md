@@ -152,7 +152,12 @@ Note that trackerjacker will automatically switch channels as necessary during n
 ## Roadmap
 
 - [x] Hosted in PyPI
-- [x] Radio signal strength
+- [x] Radio signal strength for APs
+- [ ] Radio signal strength for individual macs
+- [ ] Tracking by SSID (and not just BSSID)
+- [ ] Packet count by AP
+- [ ] Packet count by MAC
+- [ ] Build map by data exchanged (exclude beacons)
 - [ ] "Jack" mode - deauth attacks
 - [ ] Mac (OS X) support
 

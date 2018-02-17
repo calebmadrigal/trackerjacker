@@ -87,3 +87,8 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# Misc
+.vscode
+wifi_map.yaml
+

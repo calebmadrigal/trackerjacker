@@ -91,4 +91,5 @@ ENV/
 # Misc
 .vscode
 wifi_map.yaml
+deploy_to_pypi.sh
 

@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import json
+import errno
 import random
 import pprint
 import logging
@@ -46,6 +47,10 @@ def make_logger(log_path=None, log_level_str='INFO'):
     log_level = log_name_to_level.get(log_level_str.upper(), 20)
     logger.setLevel(log_level)
     return logger
+
+
+def is_admin():
+    return os.getuid() == 0
 
 
 class TrackerJacker:
@@ -447,6 +452,10 @@ def get_config():
 
 
 def main():
+    if not is_admin():
+        print('trackerjacker requires r00t!', file=sys.stderr)
+        sys.exit(errno.EPERM)
+
     config = get_config()
     tj = TrackerJacker(**config)
 

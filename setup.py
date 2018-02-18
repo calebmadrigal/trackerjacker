@@ -30,7 +30,7 @@ setup(
     keywords = ['hacking', 'network', 'wireless', 'packets', 'scapy'],
     install_requires = requirements,
     tests_require = requirements,
-    entry_points={'console_scripts': ['trackerjacker = trackerjacker.trackerjacker:main']},
+    entry_points={'console_scripts': ['trackerjacker = trackerjacker.__main__:main']},
     include_package_data = True,
     classifiers = [
         'License :: OSI Approved :: MIT License',

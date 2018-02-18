@@ -21,6 +21,26 @@ import dot11_tracker
 import ieee_mac_vendor_db
 from common import TJException
 
+# Default config
+DEFAULT_CONFIG = {'log_path': None,
+                  'log_level': 'INFO',
+                  'iface': None,
+                  'devices_to_watch': [],
+                  'aps_to_watch': [],
+                  'threshold_window': 10,
+                  'do_map': True,
+                  'do_track': True,
+                  'map_file': 'wifi_map.yaml',
+                  'map_save_period': 10,
+                  'threshold_bytes': 1,
+                  'alert_cooldown': 30,
+                  'alert_command': None,
+                  'channels_to_monitor': None,
+                  'channel_switch_scheme': 'round_robin',
+                  'time_per_channel': 2,
+                  'display_matching_packets': False,
+                  'display_all_packets': False}
+
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 try:
     import scapy.all as scapy
@@ -142,7 +162,7 @@ class TrackerJacker:
             else:
                 channel_switch_scheme = 'traffic_based'
 
-        self.logger.info('Channel switching scheme: %s', channel_switch_scheme)
+        self.logger.debug('Channel switching scheme: %s', channel_switch_scheme)
 
         if channel_switch_scheme == 'traffic_based':
             self.channel_switch_func = self.switch_channel_based_on_traffic
@@ -271,27 +291,7 @@ class TrackerJacker:
             self.dot11_tracker.stop()
 
 
-def get_config():
-    # Default config
-    config = {'log_path': None,
-              'log_level': 'INFO',
-              'iface': None,
-              'devices_to_watch': [],
-              'aps_to_watch': [],
-              'threshold_window': 10,
-              'do_map': True,
-              'do_track': True,
-              'map_file': 'wifi_map.yaml',
-              'map_save_period': 10,
-              'threshold_bytes': 1,
-              'alert_cooldown': 30,
-              'alert_command': None,
-              'channels_to_monitor': None,
-              'channel_switch_scheme': 'round_robin',
-              'time_per_channel': 2,
-              'display_matching_packets': False,
-              'display_all_packets': False}
-
+def parse_command_line_args():
     parser = argparse.ArgumentParser()
     # Modes
     parser.add_argument('--map', action='store_true', dest='do_map',
@@ -334,8 +334,10 @@ def get_config():
                         help='Path to config json file; For example config file, use --print-default-config')
 
     # vars converts from namespace to dict
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def do_simple_tasks_if_specified(args):
     @contextmanager
     def handle_interface_not_found():
         if not args.iface:
@@ -363,7 +365,7 @@ def get_config():
             print('Vendor for {} not found'.format(args.mac_lookup), file=sys.stderr)
         sys.exit(0)
     elif args.print_default_config:
-        print(json.dumps(config, indent=4, sort_keys=True))
+        print(json.dumps(DEFAULT_CONFIG, indent=4, sort_keys=True))
         sys.exit(0)
     elif args.set_channel:
         with handle_interface_not_found():
@@ -371,6 +373,10 @@ def get_config():
             device_management.switch_to_channel(args.iface, channel)
             print('Set channel to {} on {}'.format(channel, args.iface))
             sys.exit(0)
+
+
+def build_config(args):
+    config = DEFAULT_CONFIG
 
     macs_from_config = []
     aps_from_config = []
@@ -432,21 +438,32 @@ def main():
         print('trackerjacker requires r00t!', file=sys.stderr)
         sys.exit(errno.EPERM)
 
-    config = get_config()
+    argparse_args = parse_command_line_args()
+
+    # Some command-line args specify to just perform a simple task and then exit
+    try:
+        do_simple_tasks_if_specified(argparse_args)
+    except TJException as e:
+        print('Error: {}'.format(e), file=sys.stderr)
+
+    config = build_config(argparse_args)
 
     # Setup logger
     logger = make_logger(config.pop('log_path'), config.pop('log_level'))
 
-    tj = TrackerJacker(**config, logger=logger)  # pylint: disable=E1123
-
     try:
+        tj = TrackerJacker(**config, logger=logger)  # pylint: disable=E1123
         tj.start()
     except TJException as e:
         logger.error('Error: %s', e)
     except KeyboardInterrupt:
         print('Stopping...')
     finally:
-        tj.stop()
+        try:
+            tj.stop()
+        except UnboundLocalError:
+            # Exception was thrown in TrackerJacker initializer, so 'tj' doesn't exist
+            pass
 
 if __name__ == '__main__':
     main()

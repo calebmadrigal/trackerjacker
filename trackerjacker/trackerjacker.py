@@ -86,13 +86,16 @@ class TrackerJacker:
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
 
-        self.need_to_disable_monitor_mode_on_exit = False
         self.last_channel_switch_time = 0
         self.num_msgs_received_this_channel = 0
         self.current_channel = 1
+        self.stopping_event = threading.Event()
 
         self.logger = make_logger(log_path, log_level)
-        self.configure_interface(iface)
+        self.iface, self.need_to_disable_monitor_mode_on_exit = device_management.select_interface(iface, self.logger)
+        if not self.iface:
+            sys.exit(1)
+
         self.configure_channels(channels_to_monitor, channel_switch_scheme)
 
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
@@ -110,40 +113,6 @@ class TrackerJacker:
                                                             threshold_bytes, threshold_window, alert_cooldown,
                                                             alert_command)
 
-    def configure_interface(self, iface):
-        # If no device specified, see if there is a device already in monitor mode, and go with it...
-        if not iface:
-            monitor_mode_iface = device_management.find_first_monitor_interface()
-            if monitor_mode_iface:
-                self.iface = monitor_mode_iface
-                self.logger.debug('Using monitor mode interface: %s', self.iface)
-            else:
-                self.logger.error('Please specify interface with -i switch')
-                sys.exit(1)
-
-        # If specified interface is already in monitor mode, do nothing... just go with it
-        elif device_management.is_monitor_mode_device(iface):
-            self.iface = iface
-            self.logger.debug('Interface %s is already in monitor mode...', iface)
-
-        # Otherwise, try to put specified interface into monitor mode, but remember to undo that when done...
-        else:
-            try:
-                device_management.monitor_mode_on(iface)
-                self.iface = iface
-                self.need_to_disable_monitor_mode_on_exit = True
-                self.logger.debug('Enabled monitor mode on %s', iface)
-            except Exception:
-                # If we fail to find the specified (or default) interface, look to see if there is a monitor interface
-                self.logger.warning('Could not enable monitor mode on enterface: %s', iface)
-                mon_iface = device_management.find_first_monitor_interface()
-                if mon_iface:
-                    self.iface = mon_iface
-                    self.logger.debug('Going with interface: %s', self.iface)
-                else:
-                    self.logger.error('And could not find a monitor interface')
-                    sys.exit(1)
-
     def configure_channels(self, channels_to_monitor, channel_switch_scheme):
         # Find supported channels
         self.supported_channels = device_management.get_supported_channels(self.iface)
@@ -155,8 +124,8 @@ class TrackerJacker:
             channels_to_monitor_set = set([int(c) for c in channels_to_monitor])
             if len(channels_to_monitor_set & set(self.supported_channels)) != len(channels_to_monitor_set):
                 self.logger.error('Not all of channels to monitor are supported by %s', self.iface)
-                self.restore_interface()
-                sys.exit(1)
+                self.stop()  # self.restore_interface()
+                sys.exit(1)  # TODO: Stop nicer
             self.channels_to_monitor = channels_to_monitor
             self.current_channel = self.channels_to_monitor[0]
             self.logger.info('Monitoring channels: %s', channels_to_monitor_set)
@@ -196,7 +165,7 @@ class TrackerJacker:
 
         # Only worry about switching channels if we are monitoring 2 or more
         if len(self.channels_to_monitor) > 1:
-            while True:
+            while not self.stopping_event.is_set():
                 time.sleep(self.time_per_channel)
                 self.channel_switch_func()
                 self.last_channel_switch_time = time.time()
@@ -272,11 +241,6 @@ class TrackerJacker:
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
 
-    def restore_interface(self):
-        if self.need_to_disable_monitor_mode_on_exit:
-            device_management.monitor_mode_off(self.iface)
-            self.logger.debug('Disabled monitor mode for interface: %s', self.iface)
-
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface)
 
@@ -286,7 +250,14 @@ class TrackerJacker:
         scapy.sniff(iface=self.iface, prn=self.process_packet, store=0)
 
     def stop(self):
-        self.restore_interface()
+        self.stopping_event.set()
+        # Try to wait long enough for the channel switching thread to see the event so
+        # the device isn't busy when we try to disable monitor mode.
+        if self.need_to_disable_monitor_mode_on_exit:
+            self.logger.info('\nDisabling monitor mode for interface: %s', self.iface)
+            time.sleep(self.time_per_channel + 1)
+            device_management.monitor_mode_off(self.iface)
+            self.logger.debug('Disabled monitor mode for interface: %s', self.iface)
 
         if self.do_map:
             # Flush map to disk

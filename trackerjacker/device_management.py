@@ -20,14 +20,14 @@ def set_interface_mode(iface, mode):
     subprocess.check_call('ifconfig {} down'.format(iface), shell=True)
     subprocess.check_call('iwconfig {} mode {}'.format(iface, mode), shell=True)
     subprocess.check_call('ifconfig {} up'.format(iface), shell=True)
-    return iface
+
 
 def monitor_mode_on(iface):
-    return set_interface_mode(iface, 'monitor')
+    set_interface_mode(iface, 'monitor')
 
 
 def monitor_mode_off(iface):
-    return set_interface_mode(iface, 'managed')
+    set_interface_mode(iface, 'managed')
 
 
 def get_network_interfaces():
@@ -76,3 +76,41 @@ def get_supported_channels(iface):
 
 def switch_to_channel(iface, channel_num):
     subprocess.call('iw dev {} set channel {}'.format(iface, channel_num), shell=True)
+
+def select_interface(iface, logger):
+    selected_iface = None
+    need_to_disable_monitor_mode_on_exit = False
+
+    # If no device specified, see if there is a device already in monitor mode, and go with it...
+    if not iface:
+        monitor_mode_iface = find_first_monitor_interface()
+        if monitor_mode_iface:
+            selected_iface = monitor_mode_iface
+            logger.info('Using monitor mode interface: %s', selected_iface)
+        else:
+            logger.error('Please specify interface with -i switch')
+
+    # If specified interface is already in monitor mode, do nothing... just go with it
+    elif is_monitor_mode_device(iface):
+        selected_iface = iface
+        logger.debug('Interface %s is already in monitor mode...', iface)
+
+    # Otherwise, try to put specified interface into monitor mode, but remember to undo that when done...
+    else:
+        try:
+            logger.info('Enabling monitor mode on %s', iface)
+            monitor_mode_on(iface)
+            selected_iface = iface
+            need_to_disable_monitor_mode_on_exit = True
+            logger.debug('Enabled monitor mode on %s', iface)
+        except Exception:
+            # If we fail to find the specified (or default) interface, look to see if there is a monitor interface
+            logger.warning('Could not enable monitor mode on enterface: %s', iface)
+            mon_iface = find_first_monitor_interface()
+            if mon_iface:
+                selected_iface = mon_iface
+                logger.info('Going with interface: %s', selected_iface)
+            else:
+                logger.error('And could not find a monitor interface')
+
+    return selected_iface, need_to_disable_monitor_mode_on_exit

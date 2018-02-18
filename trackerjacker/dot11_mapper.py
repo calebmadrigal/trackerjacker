@@ -53,11 +53,7 @@ class Dot11Mapper:
             self.mac_signal_strength[mac] = frame.signal_strength
 
         # If there is a specified Access Point in the frame...
-        # Note: We only associate a MAC with a BSSID if we've seen a Data frame (don't include beacons)
-        if (frame.bssid and
-                frame.bssid not in Dot11Mapper.MACS_TO_IGNORE and
-                frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA):
-
+        if frame.bssid and frame.bssid not in Dot11Mapper.MACS_TO_IGNORE:
             if frame.bssid not in chan_to_bssid:
                 chan_to_bssid[frame.bssid] = {'ssid': None, 'macs': set(), 'signal': None}
             bssid_node = chan_to_bssid[frame.bssid]
@@ -71,7 +67,9 @@ class Dot11Mapper:
             else:
                 self.bssid_to_ssid[frame.bssid] = bssid_node['ssid']
 
-            bssid_node['macs'] |= frame.macs - Dot11Mapper.MACS_TO_IGNORE - set([frame.bssid])
+            # Note: We only associate a MAC with a BSSID if we've seen a Data frame (don't include beacons)
+            if frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA:
+                bssid_node['macs'] |= frame.macs - Dot11Mapper.MACS_TO_IGNORE - set([frame.bssid])
 
             if frame.signal_strength:
                 bssid_node['signal'] = frame.signal_strength

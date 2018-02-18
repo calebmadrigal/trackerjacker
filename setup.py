@@ -1,13 +1,17 @@
+# pylint: disable=C0103, C0111, C0326
+
 from setuptools import setup
 
 with open('requirements.txt', 'r') as f:
     requirements = f.read().splitlines()
+
 
 def get_version():
     with open('trackerjacker/__init__.py', 'r') as f:
         lines = f.readlines()
     version_line = [line for line in lines if line.startswith('__version__')][0]
     return version_line.split('=')[1].strip().replace('"', '')
+
 
 def get_readme():
     try:
@@ -16,6 +20,7 @@ def get_readme():
     except(IOError, ImportError):
         readme_data = open('README.md').read()
     return readme_data
+
 
 setup(
     name = 'trackerjacker',
@@ -47,4 +52,3 @@ setup(
         'Operating System :: POSIX :: Linux'
     ],
 )
-

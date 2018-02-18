@@ -153,7 +153,7 @@ Note that trackerjacker will automatically switch channels as necessary during n
 
 - [x] Hosted in PyPI
 - [x] Radio signal strength for APs
-- [ ] Radio signal strength for individual macs
+- [x] Radio signal strength for individual macs
 - [ ] Tracking by SSID (and not just BSSID)
 - [ ] Packet count by AP
 - [ ] Packet count by MAC

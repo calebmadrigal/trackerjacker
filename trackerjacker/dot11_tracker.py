@@ -52,6 +52,13 @@ class Dot11Tracker:
             packet_lens = self.get_packet_lens(mac)
             packet_lens.append((time.time(), num_bytes))
 
+    def get_total_bytes_for_mac(self, mac):
+        packet_lens = self.get_packet_lens(mac)
+        if packet_lens:
+            return sum([packet_len for _, packet_len in packet_lens])
+        else:
+            return 0
+
     def get_bytes_in_time_window(self, mac):
         with self.packet_lens_lock:
             packet_lens = self.get_packet_lens(mac)

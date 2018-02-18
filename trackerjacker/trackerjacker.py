@@ -245,22 +245,26 @@ class TrackerJacker:
             if self.display_all_packets:
                 print('\t', pkt.summary())
 
+            # Filter out packets not in the list of Access Points to monitor (if specified)
             if self.aps_to_watch_set:
                 if frame.bssid not in self.aps_to_watch_set:
-                    print('packet not in aps to watch')
                     return
 
             # See if any MACs we care about are here
             matched_macs = self.devices_to_watch_set & frame.macs
             if matched_macs:
+                # Display matched packets (if specified)
                 if self.display_matching_packets and not self.display_all_packets:
                     print('\t', pkt.summary())
 
+                # If Track mode enabled, do it. Note that tracking by "devices to watch" only affects tracking, not mapping.
                 if self.do_track:
                     num_bytes_in_pkt = len(pkt)
                     for mac in matched_macs:
                         self.dot11_tracker.add_bytes_for_mac(mac, num_bytes_in_pkt)
 
+            # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
+            # (which is why this isn't under the 'if matched_matcs' block).
             if self.do_map:
                 self.dot11_map.add_frame(int(self.current_channel), frame)
                 if time.time() - self.map_last_save >= self.map_save_period:

@@ -41,6 +41,9 @@ class Dot11Map:
         self.ssids_seen = set()
         self.macs_seen = set()
 
+        # '48:AD:08:AA:BB:CC' -> -38
+        self.mac_signal_strength = {}
+
     def add_frame(self, channel, dot11_frame):
         if channel not in self.map_data:
             self.map_data[channel] = {'unassociated': {'ssid': None, 'macs': set()}}
@@ -65,6 +68,10 @@ class Dot11Map:
 
             if dot11_frame.signal_strength:
                 bssid_node['signal'] = dot11_frame.signal_strength
+
+            # Update signal strength for each MAC in the frame
+            for mac in dot11_frame.macs:
+                self.mac_signal_strength[mac] = dot11_frame.signal_strength
 
             # Now that each of these MACs have been associated with this bssid, they are no longer 'unassociated'
             self.associated_macs |= dot11_frame.macs
@@ -116,7 +123,11 @@ class Dot11Map:
                         mac_vendor = self.mac_vendor_db.lookup(mac)
                         if mac_vendor == '':
                             mac_vendor = "Unknown"
-                        f.write('      - "{}"  # {}\n'.format(mac, mac_vendor))
+                        mac_signal = self.mac_signal_strength.get(mac, None)
+                        if mac_signal:
+                            f.write('      - "{}"  # {}; {}dBm\n'.format(mac, mac_vendor, mac_signal))
+                        else:
+                            f.write('      - "{}"  # {}\n'.format(mac, mac_vendor))
 
     def load_from_file(self, file_path):
         """ Load from YAML file. """

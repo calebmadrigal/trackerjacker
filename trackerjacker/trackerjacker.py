@@ -100,7 +100,7 @@ class TrackerJacker:
 
         if self.do_map:
             self.logger.info('Map output file: %s', self.map_file)
-            self.dot11_map = dot11_mapper.Dot11Map(self.logger)
+            self.dot11_map = dot11_mapper.Dot11Mapper(self.logger)
             if os.path.exists(self.map_file):
                 self.dot11_map.load_from_file(self.map_file)
             self.map_last_save = time.time()

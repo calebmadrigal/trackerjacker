@@ -38,12 +38,12 @@ class MockDot11Frame:
         self.macs = set(mock_dict['macs'])
 
 
-class Dot11MapTest(unittest.TestCase):
+class Dot11MapperTest(unittest.TestCase):
     def setUp(self):
         self.test_file = 'test_map.yaml'
 
-        # Create Dot11Map
-        dot11_map = dot11_mapper.Dot11Map()
+        # Create Dot11Mapper
+        dot11_map = dot11_mapper.Dot11Mapper()
 
         # Add test frames to map
         for channel in test_frame_data:

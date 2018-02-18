@@ -8,7 +8,7 @@ import dot11_frame  # pylint: disable=E0401
 import ieee_mac_vendor_db  # pylint: disable=E0401
 
 
-class Dot11Map:
+class Dot11Mapper:
     """ Builds/represents a map of this structure (and saves to yaml files):
 
     1:  # channel
@@ -58,7 +58,7 @@ class Dot11Map:
         # If there is a specified Access Point in the frame...
         # Note: We only associate a MAC with a BSSID if we've seen a Data frame (don't include beacons)
         if (frame.bssid and
-                frame.bssid not in Dot11Map.MACS_TO_IGNORE and
+                frame.bssid not in Dot11Mapper.MACS_TO_IGNORE and
                 frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA):
 
             if frame.bssid not in chan_to_bssid:
@@ -74,14 +74,14 @@ class Dot11Map:
             else:
                 self.bssid_to_ssid[frame.bssid] = bssid_node['ssid']
 
-            bssid_node['macs'] |= frame.macs - Dot11Map.MACS_TO_IGNORE - set([frame.bssid])
+            bssid_node['macs'] |= frame.macs - Dot11Mapper.MACS_TO_IGNORE - set([frame.bssid])
 
             if frame.signal_strength:
                 bssid_node['signal'] = frame.signal_strength
 
             # Now that each of these MACs have been associated with this bssid, they are no longer 'unassociated'
             self.associated_macs |= frame.macs
-            self.delete_from_unassociated(frame.macs - Dot11Map.MACS_TO_IGNORE)
+            self.delete_from_unassociated(frame.macs - Dot11Mapper.MACS_TO_IGNORE)
 
         # If no Access Point is specified in the frame...
         else:

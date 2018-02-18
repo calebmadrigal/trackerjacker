@@ -3,7 +3,6 @@
 import os
 import sys
 import unittest
-# sys.path.append('..')
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import ieee_mac_vendor_db
 

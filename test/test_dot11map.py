@@ -1,9 +1,11 @@
+# pylint: disable=C0111, C0413, C0103, E0401, R0903
+
 import os
 import sys
 import unittest
 import yaml
-sys.path.append('..')
-import trackerjacker
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import dot11_mapper
 
 test_frame_data = yaml.load("""
 1:
@@ -41,7 +43,7 @@ class Dot11MapTest(unittest.TestCase):
         self.test_file = 'test_map.yaml'
 
         # Create Dot11Map
-        dot11_map = trackerjacker.Dot11Map()
+        dot11_map = dot11_mapper.Dot11Map()
 
         # Add test frames to map
         for channel in test_frame_data:
@@ -60,9 +62,9 @@ class Dot11MapTest(unittest.TestCase):
     def tearDown(self):
         if os.path.exists(self.test_file):
             os.remove(self.test_file)
-        
+
     def test_channel_parsing(self):
-        self.assertTrue(self.loaded_map.keys() == {1,6})
+        self.assertTrue(self.loaded_map.keys() == {1, 6})
 
     def test_ignored_macs(self):
         ignored_macs = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
@@ -92,4 +94,3 @@ class Dot11MapTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

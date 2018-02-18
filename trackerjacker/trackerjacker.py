@@ -187,7 +187,7 @@ class TrackerJacker:
         self.switch_to_channel(self.current_channel, force=True)
         self.channel_switcher_thread()
 
-    def channel_switcher_thread(self, firethread=True):
+    def channel_switcher_thread(self, firethread=True):  # pylint: disable=R1710
         if firethread:
             t = threading.Thread(target=self.channel_switcher_thread, args=(False,))
             t.daemon = True
@@ -257,7 +257,8 @@ class TrackerJacker:
                 if self.display_matching_packets and not self.display_all_packets:
                     print('\t', pkt.summary())
 
-                # If Track mode enabled, do it. Note that tracking by "devices to watch" only affects tracking, not mapping.
+                # If Track mode enabled, do it. Note that tracking by "devices to watch" only
+                # affects tracking, not mapping.
                 if self.do_track:
                     num_bytes_in_pkt = len(pkt)
                     for mac in matched_macs:

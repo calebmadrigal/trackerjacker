@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# pylint: disable=C0103, C0111, W0703, C0413
+# pylint: disable=C0103, C0111, W0703, C0413, R0902
 
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import dot11_frame  # pylint: disable=E0401
 import ieee_mac_vendor_db  # pylint: disable=E0401
 
 
@@ -44,46 +45,53 @@ class Dot11Map:
         # '48:AD:08:AA:BB:CC' -> -38
         self.mac_signal_strength = {}
 
-    def add_frame(self, channel, dot11_frame):
+    def add_frame(self, channel, frame):
         if channel not in self.map_data:
             self.map_data[channel] = {'unassociated': {'ssid': None, 'macs': set()}}
 
         chan_to_bssid = self.map_data[channel]
 
-        if dot11_frame.bssid and dot11_frame.bssid not in Dot11Map.MACS_TO_IGNORE:
-            if dot11_frame.bssid not in chan_to_bssid:
-                chan_to_bssid[dot11_frame.bssid] = {'ssid': None, 'macs': set(), 'signal': None}
-            bssid_node = chan_to_bssid[dot11_frame.bssid]
+        # Update signal strength for each MAC in the frame
+        for mac in frame.macs:
+            self.mac_signal_strength[mac] = frame.signal_strength
+
+        # If there is a specified Access Point in the frame...
+        # Note: We only associate a MAC with a BSSID if we've seen a Data frame (don't include beacons)
+        if (frame.bssid and
+                frame.bssid not in Dot11Map.MACS_TO_IGNORE and
+                frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA):
+
+            if frame.bssid not in chan_to_bssid:
+                chan_to_bssid[frame.bssid] = {'ssid': None, 'macs': set(), 'signal': None}
+            bssid_node = chan_to_bssid[frame.bssid]
 
             # Associate ssid with bssid entry if no ssid has already been set
             if not bssid_node['ssid']:
-                if dot11_frame.bssid in self.bssid_to_ssid:
-                    bssid_node['ssid'] = self.bssid_to_ssid[dot11_frame.bssid]
+                if frame.bssid in self.bssid_to_ssid:
+                    bssid_node['ssid'] = self.bssid_to_ssid[frame.bssid]
                 else:
-                    bssid_node['ssid'] = dot11_frame.ssid
+                    bssid_node['ssid'] = frame.ssid
             else:
-                self.bssid_to_ssid[dot11_frame.bssid] = bssid_node['ssid']
+                self.bssid_to_ssid[frame.bssid] = bssid_node['ssid']
 
-            bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - set([dot11_frame.bssid])
+            bssid_node['macs'] |= frame.macs - Dot11Map.MACS_TO_IGNORE - set([frame.bssid])
 
-            if dot11_frame.signal_strength:
-                bssid_node['signal'] = dot11_frame.signal_strength
-
-            # Update signal strength for each MAC in the frame
-            for mac in dot11_frame.macs:
-                self.mac_signal_strength[mac] = dot11_frame.signal_strength
+            if frame.signal_strength:
+                bssid_node['signal'] = frame.signal_strength
 
             # Now that each of these MACs have been associated with this bssid, they are no longer 'unassociated'
-            self.associated_macs |= dot11_frame.macs
-            self.delete_from_unassociated(dot11_frame.macs - Dot11Map.MACS_TO_IGNORE)
+            self.associated_macs |= frame.macs
+            self.delete_from_unassociated(frame.macs - Dot11Map.MACS_TO_IGNORE)
+
+        # If no Access Point is specified in the frame...
         else:
             bssid_node = chan_to_bssid['unassociated']
-            bssid_node['macs'] |= dot11_frame.macs - Dot11Map.MACS_TO_IGNORE - self.associated_macs
+            bssid_node['macs'] |= frame.macs - self.MACS_TO_IGNORE - self.associated_macs
 
-        self.check_for_new_stuff(channel, dot11_frame)
+        self.check_for_new_stuff(channel, frame)
 
     def check_for_new_stuff(self, channel, frame):
-        unseen_macs = (frame.macs - set([None])) - self.macs_seen
+        unseen_macs = (frame.macs - set([None])) - self.macs_seen - self.MACS_TO_IGNORE
         self.macs_seen |= unseen_macs
         for mac in unseen_macs:
             self.logger.info('MAC found: {}, Channel: {}'.format(mac, channel))
@@ -100,8 +108,12 @@ class Dot11Map:
         """ Save to YAML file. Note that we manually write yaml to keep sorted ordering. """
         with open(file_path, 'w') as f:
             f.write('# trackerjacker map\n')
+
+            # For each channel
             for channel in sorted(self.map_data):
                 f.write('{}:  # channel\n'.format(channel))
+
+                # Write each BSSID
                 for bssid in sorted(self.map_data[channel]):
                     bssid_vendor = self.mac_vendor_db.lookup(bssid)
                     if 'signal' in self.map_data[channel][bssid]:
@@ -109,7 +121,8 @@ class Dot11Map:
                         f.write('  "{}":  # bssid; {}; {}dBm\n'.format(bssid, bssid_vendor, bssid_signal))
                     else:
                         f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
-                    # Wrote SSID if it exists for this SSID
+
+                    # Write SSID if it exists for this BSSID
                     ssid = self.map_data[channel][bssid]['ssid']
                     if not ssid:
                         # In case we hadn't yet got around to updating this bssid's ssid...
@@ -118,12 +131,22 @@ class Dot11Map:
                             self.map_data[channel][bssid]['ssid'] = ssid
                     if ssid:
                         f.write('    ssid: "{}"\n'.format(ssid))
+
+                    # Write all MACs associated with this BSSID
                     f.write('    macs:\n')
+
+                    # Sort so that if someone is watching the output, it doesn't wildly change for
+                    # the addition of a single device.
                     for mac in sorted([i for i in self.map_data[channel][bssid]['macs'] if i]):
+                        # Look up vendor
                         mac_vendor = self.mac_vendor_db.lookup(mac)
                         if mac_vendor == '':
                             mac_vendor = "Unknown"
+
+                        # Get signal if we have it
                         mac_signal = self.mac_signal_strength.get(mac, None)
+
+                        # Write the entry for this MAC
                         if mac_signal:
                             f.write('      - "{}"  # {}; {}dBm\n'.format(mac, mac_vendor, mac_signal))
                         else:

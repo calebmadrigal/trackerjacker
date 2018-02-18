@@ -1,12 +1,16 @@
+# pylint: disable=C0111, C0413, C0103, E0401
+
+import os
 import sys
 import unittest
-sys.path.append('..')
-import trackerjacker
+# sys.path.append('..')
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import ieee_mac_vendor_db
 
 
 class MacVendorDBTest(unittest.TestCase):
     def setUp(self):
-        self.mac_vendor_db = trackerjacker.MacVendorDB()
+        self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
 
     def test_channel_parsing(self):
         oui_tests = {
@@ -23,4 +27,3 @@ class MacVendorDBTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

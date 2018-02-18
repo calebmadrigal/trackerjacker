@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=C0103, W0703, C0111
-# blahpylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915
+# pylint: disable=C0103, W0703, C0111, R0902, R0913
 
 import time
 import datetime
@@ -56,8 +55,7 @@ class Dot11Tracker:
         packet_lens = self.get_packet_lens(mac)
         if packet_lens:
             return sum([packet_len for _, packet_len in packet_lens])
-        else:
-            return 0
+        return 0
 
     def get_bytes_in_time_window(self, mac):
         with self.packet_lens_lock:

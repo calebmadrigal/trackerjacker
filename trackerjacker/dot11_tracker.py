@@ -20,7 +20,7 @@ class Dot11Tracker:
                  alert_cooldown,
                  alert_command):
 
-        self.running = False
+        self.stop_event = threading.Event()
 
         # Same as self.arg = arg for every arg
         self.__dict__.update(locals())
@@ -92,9 +92,7 @@ class Dot11Tracker:
             t.start()
             return t
 
-        self.running = True
-
-        while self.running:
+        while not self.stop_event.is_set():
             for mac in self.devices_to_watch_set:
                 bytes_received_in_time_window = self.get_bytes_in_time_window(mac)
                 self.logger.info('Bytes received in last {} seconds for {}: {}' \
@@ -105,4 +103,4 @@ class Dot11Tracker:
             time.sleep(5)
 
     def stop(self):
-        self.running = False
+        self.stop_event.set()

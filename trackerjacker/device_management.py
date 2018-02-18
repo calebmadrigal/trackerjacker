@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-# pylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915
+# pylint: disable=C0111, C0103, C0413, W0703, R0902, R0903, R0912, R0913, R0914, R0915
 
 import os
 import re
+import sys
 import subprocess
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from common import TJException  # pylint: disable=E0401
 
 ADAPTER_MODE_MANAGED = 1    # ARPHRD_ETHER
 ADAPTER_MONITOR_MODE = 803  # ARPHRD_IEEE80211_RADIOTAP
@@ -88,7 +91,7 @@ def select_interface(iface, logger):
             selected_iface = monitor_mode_iface
             logger.info('Using monitor mode interface: %s', selected_iface)
         else:
-            logger.error('Please specify interface with -i switch')
+            raise TJException('Please specify interface with -i switch')
 
     # If specified interface is already in monitor mode, do nothing... just go with it
     elif is_monitor_mode_device(iface):
@@ -111,6 +114,6 @@ def select_interface(iface, logger):
                 selected_iface = mon_iface
                 logger.info('Going with interface: %s', selected_iface)
             else:
-                logger.error('And could not find a monitor interface')
+                raise TJException('Could not find a monitor interface')
 
     return selected_iface, need_to_disable_monitor_mode_on_exit

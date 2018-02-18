@@ -19,6 +19,7 @@ import dot11_frame
 import dot11_mapper
 import dot11_tracker
 import ieee_mac_vendor_db
+from common import TJException
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 try:
@@ -56,8 +57,7 @@ def is_admin():
 class TrackerJacker:
     # pylint: disable=R0902
     def __init__(self,
-                 log_path=None,
-                 log_level='INFO',
+                 logger=None,
                  iface=None,
                  channels_to_monitor=None,
                  channel_switch_scheme='default',
@@ -89,13 +89,17 @@ class TrackerJacker:
         self.last_channel_switch_time = 0
         self.num_msgs_received_this_channel = 0
         self.current_channel = 1
-        self.stopping_event = threading.Event()
+        self.stop_event = threading.Event()
 
-        self.logger = make_logger(log_path, log_level)
+        if logger:
+            self.logger = logger
+        else:
+            self.logger = make_logger()
+
+        # Throws TJException if it fails to find suitable interface
         self.iface, self.need_to_disable_monitor_mode_on_exit = device_management.select_interface(iface, self.logger)
-        if not self.iface:
-            sys.exit(1)
 
+        # Throws TJException on failure
         self.configure_channels(channels_to_monitor, channel_switch_scheme)
 
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
@@ -117,15 +121,13 @@ class TrackerJacker:
         # Find supported channels
         self.supported_channels = device_management.get_supported_channels(self.iface)
         if not self.supported_channels:
-            self.logger.error('Interface not found: %s', self.iface)
-            sys.exit(1)
+            raise TJException('Interface either not found, or incompatible: {}'.format(self.iface))
 
         if channels_to_monitor:
             channels_to_monitor_set = set([int(c) for c in channels_to_monitor])
             if len(channels_to_monitor_set & set(self.supported_channels)) != len(channels_to_monitor_set):
-                self.logger.error('Not all of channels to monitor are supported by %s', self.iface)
-                self.stop()  # self.restore_interface()
-                sys.exit(1)  # TODO: Stop nicer
+                raise TJException('Not all of channels to monitor are supported by {}'.format(self.iface))
+
             self.channels_to_monitor = channels_to_monitor
             self.current_channel = self.channels_to_monitor[0]
             self.logger.info('Monitoring channels: %s', channels_to_monitor_set)
@@ -165,7 +167,7 @@ class TrackerJacker:
 
         # Only worry about switching channels if we are monitoring 2 or more
         if len(self.channels_to_monitor) > 1:
-            while not self.stopping_event.is_set():
+            while not self.stop_event.is_set():
                 time.sleep(self.time_per_channel)
                 self.channel_switch_func()
                 self.last_channel_switch_time = time.time()
@@ -250,12 +252,14 @@ class TrackerJacker:
         scapy.sniff(iface=self.iface, prn=self.process_packet, store=0)
 
     def stop(self):
-        self.stopping_event.set()
-        # Try to wait long enough for the channel switching thread to see the event so
-        # the device isn't busy when we try to disable monitor mode.
+        self.stop_event.set()
         if self.need_to_disable_monitor_mode_on_exit:
             self.logger.info('\nDisabling monitor mode for interface: %s', self.iface)
+
+            # Try to wait long enough for the channel switching thread to see the event so
+            # the device isn't busy when we try to disable monitor mode.
             time.sleep(self.time_per_channel + 1)
+
             device_management.monitor_mode_off(self.iface)
             self.logger.debug('Disabled monitor mode for interface: %s', self.iface)
 
@@ -335,13 +339,11 @@ def get_config():
     @contextmanager
     def handle_interface_not_found():
         if not args.iface:
-            print('You must specify the interface with the -i paramter', file=sys.stderr)
-            sys.exit(1)
+            raise TJException('You must specify the interface with the -i paramter')
         try:
             yield
         except FileNotFoundError:
-            print('Couldn\'t find requested interface: {}'.format(args.iface), file=sys.stderr)
-            sys.exit(1)
+            raise TJException('Couldn\'t find requested interface: {}'.format(args.iface))
 
     if args.do_enable_monitor_mode:
         with handle_interface_not_found():
@@ -381,8 +383,7 @@ def get_config():
             # If there are any keys defined in the config file not allowed, error out
             invalid_keys = set(config_from_file.keys()) - set(config.keys())
             if invalid_keys:
-                print('Invalid keys found in config file: {}'.format(invalid_keys), file=sys.stderr)
-                sys.exit(1)
+                raise TJException('Invalid keys found in config file: {}'.format(invalid_keys))
 
             macs_from_config = [{'mac': dev} if isinstance(dev, str) else dev
                                 for dev in config_from_file.pop('devices_to_watch', [])]
@@ -393,8 +394,7 @@ def get_config():
             print('Loaded configuration from {}'.format(args.config))
 
         except (IOError, OSError, json.decoder.JSONDecodeError) as e:
-            print('Error loading config file ({}): {}'.format(args.config, e), file=sys.stderr)
-            sys.exit(1)
+            raise TJException('Error loading config file ({}): {}'.format(args.config, e))
 
     macs_from_args = []
     aps_from_args = []
@@ -433,10 +433,16 @@ def main():
         sys.exit(errno.EPERM)
 
     config = get_config()
-    tj = TrackerJacker(**config)
+
+    # Setup logger
+    logger = make_logger(config.pop('log_path'), config.pop('log_level'))
+
+    tj = TrackerJacker(**config, logger=logger)  # pylint: disable=E1123
 
     try:
         tj.start()
+    except TJException as e:
+        logger.error('Error: %s', e)
     except KeyboardInterrupt:
         print('Stopping...')
     finally:

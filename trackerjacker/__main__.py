@@ -13,13 +13,12 @@ import argparse
 import threading
 from contextlib import contextmanager
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import device_management
-import dot11_frame
-import dot11_mapper
-import dot11_tracker
-import ieee_mac_vendor_db
-from common import TJException
+from . import device_management
+from . import dot11_frame
+from . import dot11_mapper
+from . import dot11_tracker
+from . import ieee_mac_vendor_db
+from .common import TJException
 
 # Default config
 DEFAULT_CONFIG = {'log_path': None,

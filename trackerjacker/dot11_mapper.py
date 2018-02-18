@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 # pylint: disable=C0103, C0111, W0703, C0413, R0902
 
-import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import dot11_frame  # pylint: disable=E0401
-import ieee_mac_vendor_db  # pylint: disable=E0401
+from . import dot11_frame  # pylint: disable=E0401
+from . import ieee_mac_vendor_db  # pylint: disable=E0401
 
 
 class Dot11Mapper:

@@ -3,11 +3,9 @@
 
 import os
 import re
-import sys
 import subprocess
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from common import TJException  # pylint: disable=E0401
+from .common import TJException  # pylint: disable=E0401
 
 ADAPTER_MODE_MANAGED = 1    # ARPHRD_ETHER
 ADAPTER_MONITOR_MODE = 803  # ARPHRD_IEEE80211_RADIOTAP

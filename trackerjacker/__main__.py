@@ -6,12 +6,9 @@ import sys
 import time
 import json
 import errno
-import random
 import pprint
 import logging
 import argparse
-import threading
-from contextlib import contextmanager
 
 from . import device_management
 from . import dot11_frame
@@ -238,25 +235,18 @@ def parse_command_line_args():
 
 
 def do_simple_tasks_if_specified(args):
-    @contextmanager
-    def handle_interface_not_found():
+    if args.do_enable_monitor_mode:
         if not args.iface:
             raise TJException('You must specify the interface with the -i paramter')
-        try:
-            yield
-        except FileNotFoundError:
-            raise TJException('Couldn\'t find requested interface: {}'.format(args.iface))
-
-    if args.do_enable_monitor_mode:
-        with handle_interface_not_found():
-            device_management.monitor_mode_on(args.iface)
-            print('Enabled monitor mode on {}'.format(args.iface))
-            sys.exit(0)
+        device_management.monitor_mode_on(args.iface)
+        print('Enabled monitor mode on {}'.format(args.iface))
+        sys.exit(0)
     elif args.do_disable_monitor_mode:
-        with handle_interface_not_found():
-            device_management.monitor_mode_off(args.iface)
-            print('Disabled monitor mode on {}'.format(args.iface))
-            sys.exit(0)
+        if not args.iface:
+            raise TJException('You must specify the interface with the -i paramter')
+        device_management.monitor_mode_off(args.iface)
+        print('Disabled monitor mode on {}'.format(args.iface))
+        sys.exit(0)
     elif args.mac_lookup:
         vendor = ieee_mac_vendor_db.MacVendorDB().lookup(args.mac_lookup)
         if vendor:
@@ -268,11 +258,12 @@ def do_simple_tasks_if_specified(args):
         print(json.dumps(DEFAULT_CONFIG, indent=4, sort_keys=True))
         sys.exit(0)
     elif args.set_channel:
-        with handle_interface_not_found():
-            channel = args.set_channel[0]
-            device_management.switch_to_channel(args.iface, channel)
-            print('Set channel to {} on {}'.format(channel, args.iface))
-            sys.exit(0)
+        if not args.iface:
+            raise TJException('You must specify the interface with the -i paramter')
+        channel = args.set_channel[0]
+        device_management.switch_to_channel(args.iface, channel)
+        print('Set channel to {} on {}'.format(channel, args.iface))
+        sys.exit(0)
 
 
 def build_config(args):
@@ -345,6 +336,7 @@ def main():
         do_simple_tasks_if_specified(argparse_args)
     except TJException as e:
         print('Error: {}'.format(e), file=sys.stderr)
+        sys.exit(1)
 
     config = build_config(argparse_args)
 

@@ -14,7 +14,12 @@ ADAPTER_MODE_MANAGED = 1    # ARPHRD_ETHER
 ADAPTER_MONITOR_MODE = 803  # ARPHRD_IEEE80211_RADIOTAP
 
 
+def check_interface_exists(iface):
+    if not os.path.exists('/sys/class/net/{}'.format(iface)):
+        raise TJException('Interface {} not found'.format(iface))
+
 def set_interface_mode(iface, mode):
+    check_interface_exists(iface)
     subprocess.check_call('ifconfig {} down'.format(iface), shell=True)
     subprocess.check_call('iwconfig {} mode {}'.format(iface, mode), shell=True)
     subprocess.check_call('ifconfig {} up'.format(iface), shell=True)
@@ -33,6 +38,7 @@ def get_network_interfaces():
 
 
 def is_monitor_mode_device(iface_name):
+    check_interface_exists(iface_name)
     with open('/sys/class/net/{}/type'.format(iface_name), 'r') as f:
         adapter_mode = f.read().strip()
 
@@ -46,8 +52,12 @@ def is_monitor_mode_device(iface_name):
 
 def find_monitor_interfaces():
     for iface_name in get_network_interfaces():
-        if is_monitor_mode_device(iface_name):
-            yield iface_name
+        try:
+            if is_monitor_mode_device(iface_name):
+                yield iface_name
+        except TJException:
+            # If there's any problem with any interface, keep looking
+            pass
 
 
 def find_first_monitor_interface():

@@ -66,10 +66,6 @@ def make_logger(log_path=None, log_level_str='INFO'):
     return logger
 
 
-def is_admin():
-    return os.getuid() == 0
-
-
 class TrackerJacker:
     # pylint: disable=R0902
     def __init__(self,
@@ -325,7 +321,7 @@ def build_config(args):
 
 
 def main():
-    if not is_admin():
+    if not os.getuid() == 0:
         print('trackerjacker requires r00t!', file=sys.stderr)
         sys.exit(errno.EPERM)
 

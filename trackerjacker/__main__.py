@@ -100,26 +100,26 @@ class TrackerJacker:
         self.do_track = do_track
         self.map_file = map_file
         self.map_save_period = map_save_period
-        self.time_per_channel = time_per_channel
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
-
-        self.last_channel_switch_time = 0
-        self.num_msgs_received_this_channel = 0
-        self.current_channel = 1
-        self.stop_event = threading.Event()
 
         if logger:
             self.logger = logger
         else:
             self.logger = make_logger()
 
-        # Throws TJException if it fails to find suitable interface
-        self.iface, self.need_to_disable_monitor_mode_on_exit = device_management.select_interface(iface, self.logger)
+        if channel_switch_scheme == 'default':
+            if self.do_map:
+                channel_switch_scheme = 'round_robin'
+            else:
+                channel_switch_scheme = 'traffic_based'
 
-        # Throws TJException on failure
-        self.configure_channels(channels_to_monitor, channel_switch_scheme)
+        self.iface_manager = device_management.Dot11InterfaceManager(iface,
+                                                                     self.logger,
+                                                                     channels_to_monitor,
+                                                                     channel_switch_scheme,
+                                                                     time_per_channel)
 
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
@@ -136,101 +136,9 @@ class TrackerJacker:
                                                             threshold_bytes, threshold_window, alert_cooldown,
                                                             alert_command)
 
-    def configure_channels(self, channels_to_monitor, channel_switch_scheme):
-        # Find supported channels
-        self.supported_channels = device_management.get_supported_channels(self.iface)
-        if not self.supported_channels:
-            raise TJException('Interface either not found, or incompatible: {}'.format(self.iface))
-
-        if channels_to_monitor:
-            channels_to_monitor_set = set([int(c) for c in channels_to_monitor])
-            if len(channels_to_monitor_set & set(self.supported_channels)) != len(channels_to_monitor_set):
-                raise TJException('Not all of channels to monitor are supported by {}'.format(self.iface))
-
-            self.channels_to_monitor = channels_to_monitor
-            self.current_channel = self.channels_to_monitor[0]
-            self.logger.info('Monitoring channels: %s', channels_to_monitor_set)
-        else:
-            self.channels_to_monitor = self.supported_channels
-            self.current_channel = self.supported_channels[0]
-            self.logger.info('Monitoring all available channels on %s: %s', self.iface, self.supported_channels)
-
-        if channel_switch_scheme == 'default':
-            if self.do_map:
-                channel_switch_scheme = 'round_robin'
-            else:
-                channel_switch_scheme = 'traffic_based'
-
-        self.logger.debug('Channel switching scheme: %s', channel_switch_scheme)
-
-        if channel_switch_scheme == 'traffic_based':
-            self.channel_switch_func = self.switch_channel_based_on_traffic
-
-            # Start with a high count for each channel, so each channel is more likely to be tried
-            # at least once before having the true count for it set
-            self.msgs_per_channel = {c: 100000 for c in self.channels_to_monitor}
-        else:
-            self.channel_switch_func = self.switch_channel_round_robin
-
-        self.last_channel_switch_time = 0
-        self.num_msgs_received_this_channel = 0
-        self.switch_to_channel(self.current_channel, force=True)
-        self.channel_switcher_thread()
-
-    def channel_switcher_thread(self, firethread=True):  # pylint: disable=R1710
-        if firethread:
-            t = threading.Thread(target=self.channel_switcher_thread, args=(False,))
-            t.daemon = True
-            t.start()
-            return t
-
-        # Only worry about switching channels if we are monitoring 2 or more
-        if len(self.channels_to_monitor) > 1:
-            while not self.stop_event.is_set():
-                time.sleep(self.time_per_channel)
-                self.channel_switch_func()
-                self.last_channel_switch_time = time.time()
-
-    def get_next_channel_based_on_traffic(self):
-        total_count = sum((count for channel, count in self.msgs_per_channel.items()))
-        percent_to_channel = {count/total_count: channel for channel, count in self.msgs_per_channel.items()}
-
-        percent_sum = 0
-        sum_to_reach = random.random()
-        for percent, channel in percent_to_channel.items():
-            percent_sum += percent
-            if percent_sum >= sum_to_reach:
-                return channel
-
-        return random.sample(self.channels_to_monitor, 1)[0]
-
-    def switch_channel_based_on_traffic(self):
-        next_channel = self.get_next_channel_based_on_traffic()
-
-        # Don't ever set a channel to a 0% probability of being hit again
-        if self.num_msgs_received_this_channel == 0:
-            self.num_msgs_received_this_channel = min(self.msgs_per_channel.values())
-
-        self.msgs_per_channel[self.current_channel] = self.num_msgs_received_this_channel
-        self.num_msgs_received_this_channel = 0
-        self.switch_to_channel(next_channel)
-
-    def switch_channel_round_robin(self):
-        chans = self.channels_to_monitor
-        next_channel = chans[(chans.index(self.current_channel)+1) % len(chans)]
-        self.switch_to_channel(next_channel)
-
-    def switch_to_channel(self, channel_num, force=False):
-        self.logger.debug('Switching to channel %s', channel_num)
-        if channel_num == self.current_channel and not force:
-            return
-        device_management.switch_to_channel(self.iface, channel_num)
-        self.current_channel = channel_num
-
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
             frame = dot11_frame.Dot11Frame(pkt)
-            self.num_msgs_received_this_channel += 1
 
             if self.display_all_packets:
                 print('\t', pkt.summary())
@@ -257,30 +165,23 @@ class TrackerJacker:
             # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
             # (which is why this isn't under the 'if matched_matcs' block).
             if self.do_map:
-                self.dot11_map.add_frame(int(self.current_channel), frame)
+                self.dot11_map.add_frame(int(self.iface_manager.current_channel), frame)
                 if time.time() - self.map_last_save >= self.map_save_period:
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
 
     def start(self):
-        self.logger.debug('Starting monitoring on %s', self.iface)
+        self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)
+
+        self.iface_manager.start()
 
         if self.do_track:
             self.dot11_tracker.startTracking()
 
-        scapy.sniff(iface=self.iface, prn=self.process_packet, store=0)
+        scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
 
     def stop(self):
-        self.stop_event.set()
-        if self.need_to_disable_monitor_mode_on_exit:
-            self.logger.info('\nDisabling monitor mode for interface: %s', self.iface)
-
-            # Try to wait long enough for the channel switching thread to see the event so
-            # the device isn't busy when we try to disable monitor mode.
-            time.sleep(self.time_per_channel + 1)
-
-            device_management.monitor_mode_off(self.iface)
-            self.logger.debug('Disabled monitor mode for interface: %s', self.iface)
+        self.iface_manager.stop()
 
         if self.do_map:
             # Flush map to disk

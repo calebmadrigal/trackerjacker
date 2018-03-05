@@ -102,6 +102,23 @@ class TrackerJacker:
         else:
             self.logger = make_logger()
 
+        # Even if we are not in map mode, we still need to build the map for tracking purposes
+        self.dot11_map = None
+        if self.do_map:
+            self.map_last_save = time.time()
+
+            # Try to load map
+            self.logger.info('Map output file: %s', self.map_file)
+            if os.path.exists(self.map_file):
+                self.dog11_map = dot11_mapper.Dot11Map.load_from_file(self.map_file)
+                #previous_dot11_map = dot11_mapper.load_map_from_file(self.map_file)
+                #self.dot11_map = dot11_mapper.Dot11Map(map_data=previous_dot11_map)
+            else:
+                self.logger.warning('Specified map file not found - creating new map file.')
+
+        if not self.dot11_map:
+            self.dot11_map = dot11_mapper.Dot11Map()
+
         if channel_switch_scheme == 'default':
             if self.do_map:
                 channel_switch_scheme = 'round_robin'
@@ -117,13 +134,6 @@ class TrackerJacker:
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
-        if self.do_map:
-            self.logger.info('Map output file: %s', self.map_file)
-            self.dot11_map = dot11_mapper.Dot11Mapper(self.logger)
-            if os.path.exists(self.map_file):
-                self.dot11_map.load_from_file(self.map_file)
-            self.map_last_save = time.time()
-
         if self.do_track:
             self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger, devices_to_watch, aps_to_watch,
                                                             threshold_bytes, threshold_window, alert_cooldown,
@@ -131,7 +141,8 @@ class TrackerJacker:
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
-            frame = dot11_frame.Dot11Frame(pkt)
+            frame = dot11_frame.Dot11Frame(pkt, int(self.iface_manager.current_channel))
+            self.log_newly_found(frame)
 
             if self.display_all_packets:
                 print('\t', pkt.summary())
@@ -158,11 +169,21 @@ class TrackerJacker:
             # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
             # (which is why this isn't under the 'if matched_matcs' block).
             if self.do_map:
-                self.dot11_map.add_frame(int(self.iface_manager.current_channel), frame)
+                self.dot11_map.add_frame(frame)
                 if time.time() - self.map_last_save >= self.map_save_period:
+                    # dot11_mapper.save_map_to_file(self.map_file, self.dot11_map)
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
 
+    def log_newly_found(self, frame):
+        # Log newly-found things
+        if frame.ssid and frame.bssid not in self.dot11_map.access_points.keys():
+            self.logger.info('SSID found: %s, BSSID: %s, Channel: %d', frame.ssid, frame.bssid, frame.channel)
+
+        new_devices = frame.macs - self.dot11_map.devices.keys() - dot11_mapper.MACS_TO_IGNORE
+        for mac in new_devices:
+            self.logger.info('MAC found: %s, Channel: %d', mac, frame.channel)
+        
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)
 

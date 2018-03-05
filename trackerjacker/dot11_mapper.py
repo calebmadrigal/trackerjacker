@@ -1,178 +1,208 @@
 #!/usr/bin/env python3
 # pylint: disable=C0103, C0111, W0703, C0413, R0902
 
+import time
+import copy
+import threading
+from functools import reduce
+
+import pyaml
+import ruamel.yaml
 from . import dot11_frame  # pylint: disable=E0401
 from . import ieee_mac_vendor_db  # pylint: disable=E0401
 
+MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
 
-class Dot11Mapper:
-    """ Builds/represents a map of this structure (and saves to yaml files):
 
-    1:  # channel
-      "90:35:ab:1c:25:19":  # bssid; Linksys; -75dBm
-        ssid: "hacker"
-        macs:
-          - "00:03:7f:84:f8:09"  # Dropcam; -49dBm
-          - "01:00:5e:00:00:fb"  # Apple; -60dBm
-      "unassociated":
-        macs:
-          - "34:23:ba:fd:5e:24"  # Sony; -67dBm
-          - "e8:50:8b:36:5e:bb"  # Unknown; -76dBm
-    5:  # channel
-      "34:89:ab:c4:15:69":  # bssid; -22dBm
-        ssid: "hello-world"
-        macs:
-          - "b8:27:eb:d6:cc:e9"  # Samsung; -30dBm
-          - "d8:49:2f:30:68:17"  # Apple; -29dBm
-      "unassociated":
-        macs:
-          - "34:23:ba:fd:5e:24"  # Unknown; -25dBm
+class Dot11Map:
     """
-    MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
+    Represents the observed state of the 802.11 radio space.
+    """
 
-    def __init__(self, logger):
-        self.logger = logger
-        self.map_data = {}
+    def __init__(self, map_data=None):
+        self.bssids_associated_with_ssids = set()
+
+        # 'linksys' -> {'90:35:ab:1c:25:19', '80:81:a6:f5:29:22'}
+        self.ssid_to_access_point = {}
+
+        # '90:35:cb:1c:25:19' -> {'bssid': '90:35:cb:1c:25:19',
+        #       (bssid)           'ssid': 'hacker',
+        #                         'vendor': 'Linksys',
+        #                         'frames': [(timestamp1, num_bytes), (timestamp2, num_bytes)],
+        #                         'signal': -75,
+        #                         'channels': {1, 11},
+        #                         'devices': {'00:03:7f:84:f8:09', 'e8:51:8b:36:5e:bb'}}
+        self.access_points = {}
+
+        # '00:03:7f:84:f8:09' -> {'signal': -60,
+        #        (mac)            'vendor': 'Apple',
+        #                         'frames_in': [(timestamp1, num_bytes), (timestamp2, num_bytes2)],
+        #                         'frames_out': [(timestamp1, num_bytes)] }
+        self.devices = {}
+
+        if map_data:
+            self.ssid_to_access_point = map_data['ssid_to_access_point']
+            self.bssids_associated_with_ssids = set(map_data['access_points'].keys())
+            self.access_points = map_data['access_points']
+            self.devices = map_data['devices']
+
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
-        self.associated_macs = set()
-        self.bssid_to_ssid = {}
-        self.ssids_seen = set()
-        self.macs_seen = set()
 
-        # '48:AD:08:AA:BB:CC' -> -38
-        self.mac_signal_strength = {}
+        self.lock = threading.Lock()
 
-    def add_frame(self, channel, frame):
-        if channel not in self.map_data:
-            self.map_data[channel] = {'unassociated': {'ssid': None, 'macs': set()}}
+    def add_frame(self, frame):
+        with self.lock:
+            # Update Access Point data
+            if frame.bssid:
+                self.update_access_point(frame.bssid, frame)
 
-        chan_to_bssid = self.map_data[channel]
+            # Update Device data
+            for mac in (frame.macs - set([frame.bssid])):
+                self.update_device(mac, frame)
 
-        # Update signal strength for each MAC in the frame
-        for mac in frame.macs:
-            self.mac_signal_strength[mac] = frame.signal_strength
+    def update_access_point(self, bssid, frame):
+        if bssid in MACS_TO_IGNORE:
+            return
 
-        # If there is a specified Access Point in the frame...
-        if frame.bssid and frame.bssid not in Dot11Mapper.MACS_TO_IGNORE:
-            if frame.bssid not in chan_to_bssid:
-                chan_to_bssid[frame.bssid] = {'ssid': None, 'macs': set(), 'signal': None}
-            bssid_node = chan_to_bssid[frame.bssid]
+        if bssid not in self.access_points:
+            ap_node = {'bssid': bssid,
+                       'ssid': frame.ssid,
+                       'vendor': self.mac_vendor_db.lookup(bssid),
+                       'channels': {frame.channel},
+                       'devices': set(),
+                       'frames': []}
+            self.access_points[bssid] = ap_node
 
-            # Associate ssid with bssid entry if no ssid has already been set
-            if not bssid_node['ssid']:
-                if frame.bssid in self.bssid_to_ssid:
-                    bssid_node['ssid'] = self.bssid_to_ssid[frame.bssid]
-                else:
-                    bssid_node['ssid'] = frame.ssid
-            else:
-                self.bssid_to_ssid[frame.bssid] = bssid_node['ssid']
-
-            # Note: We only associate a MAC with a BSSID if we've seen a Data frame (don't include beacons)
-            if frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA:
-                bssid_node['macs'] |= frame.macs - Dot11Mapper.MACS_TO_IGNORE - set([frame.bssid])
-
-            if frame.signal_strength:
-                bssid_node['signal'] = frame.signal_strength
-
-            # Now that each of these MACs have been associated with this bssid, they are no longer 'unassociated'
-            self.associated_macs |= frame.macs
-            self.delete_from_unassociated(frame.macs - Dot11Mapper.MACS_TO_IGNORE)
-
-        # If no Access Point is specified in the frame...
         else:
-            bssid_node = chan_to_bssid['unassociated']
-            bssid_node['macs'] |= frame.macs - self.MACS_TO_IGNORE - self.associated_macs
+            ap_node = self.access_points[frame.bssid]
 
-        self.check_for_new_stuff(channel, frame)
-
-    def check_for_new_stuff(self, channel, frame):
-        unseen_macs = (frame.macs - set([None])) - self.macs_seen - self.MACS_TO_IGNORE
-        self.macs_seen |= unseen_macs
-        for mac in unseen_macs:
-            self.logger.info('MAC found: {}, Channel: {}'.format(mac, channel))
-
-        if frame.ssid and frame.ssid not in self.ssids_seen:
-            self.ssids_seen |= set([frame.ssid])
-            self.logger.info('SSID found: {}, BSSID: {}, Channel: {}'.format(frame.ssid, frame.bssid, channel))
-
-    def delete_from_unassociated(self, macs_to_remove):
-        for channel in self.map_data:
-            self.map_data[channel]['unassociated']['macs'] -= macs_to_remove
-
-    def save_to_file(self, file_path):
-        """ Save to YAML file. Note that we manually write yaml to keep sorted ordering. """
-        with open(file_path, 'w') as f:
-            f.write('# trackerjacker map\n')
-
-            # For each channel
-            for channel in sorted(self.map_data):
-                f.write('{}:  # channel\n'.format(channel))
-
-                # Write each BSSID
-                for bssid in sorted(self.map_data[channel]):
-                    bssid_vendor = self.mac_vendor_db.lookup(bssid)
-                    if 'signal' in self.map_data[channel][bssid]:
-                        bssid_signal = self.map_data[channel][bssid]['signal']
-                        f.write('  "{}":  # bssid; {}; {}dBm\n'.format(bssid, bssid_vendor, bssid_signal))
-                    else:
-                        f.write('  "{}":  # bssid; {}\n'.format(bssid, bssid_vendor))
-
-                    # Write SSID if it exists for this BSSID
-                    ssid = self.map_data[channel][bssid]['ssid']
-                    if not ssid:
-                        # In case we hadn't yet got around to updating this bssid's ssid...
-                        if bssid in self.bssid_to_ssid:
-                            ssid = self.bssid_to_ssid[bssid]
-                            self.map_data[channel][bssid]['ssid'] = ssid
-                    if ssid:
-                        f.write('    ssid: "{}"\n'.format(ssid))
-
-                    # Write all MACs associated with this BSSID
-                    f.write('    macs:\n')
-
-                    # Sort so that if someone is watching the output, it doesn't wildly change for
-                    # the addition of a single device.
-                    for mac in sorted([i for i in self.map_data[channel][bssid]['macs'] if i]):
-                        # Look up vendor
-                        mac_vendor = self.mac_vendor_db.lookup(mac)
-                        if mac_vendor == '':
-                            mac_vendor = "Unknown"
-
-                        # Get signal if we have it
-                        mac_signal = self.mac_signal_strength.get(mac, None)
-
-                        # Write the entry for this MAC
-                        if mac_signal:
-                            f.write('      - "{}"  # {}; {}dBm\n'.format(mac, mac_vendor, mac_signal))
-                        else:
-                            f.write('      - "{}"  # {}\n'.format(mac, mac_vendor))
-
-    def load_from_file(self, file_path):
-        """ Load from YAML file. """
-        try:
-            import yaml
-            with open(file_path, 'r') as f:
-                loaded_map = yaml.load(f.read())
-
-            if loaded_map:
-                # Cleanup and make the list of MACs be a set of MACs
-                for channel in loaded_map:
-                    for bssid in loaded_map[channel]:
-                        bssid_node = loaded_map[channel][bssid]
-                        if 'ssid' not in bssid_node:
-                            bssid_node['ssid'] = None
-
-                        # If key not present or value is None
-                        if 'macs' not in bssid_node or not bssid_node['macs']:
-                            bssid_node['macs'] = set()
-                        else:
-                            bssid_node['macs'] = set(bssid_node['macs'])
+        # Associate with ssid if ssid available
+        if frame.ssid:
+            if frame.ssid in self.ssid_to_access_point:
+                self.ssid_to_access_point[frame.ssid] |= {bssid}
             else:
-                loaded_map = {}
+                self.ssid_to_access_point[frame.ssid] = {bssid}
 
-            self.map_data = loaded_map
-            return loaded_map
+            self.bssids_associated_with_ssids |= {bssid}
 
-        except Exception as e:
-            self.logger.error('Error loading map from file ({}): {}'.format(file_path, e))
-            return {}
+            # Make sure we didn't previously categorize this as an unknown_ssid
+            missing_ssid_name = 'unknown_ssid_{}'.format(bssid)
+            if missing_ssid_name in self.ssid_to_access_point:
+                self.ssid_to_access_point[frame.ssid] |= self.ssid_to_access_point.pop(missing_ssid_name)
+        elif bssid not in self.bssids_associated_with_ssids:
+            # If no ssid is known, use the ssid name "unknown_ssid_80:21:46:af:28:66"
+            missing_ssid_name = 'unknown_ssid_{}'.format(bssid)
+            if missing_ssid_name in self.ssid_to_access_point:
+                self.ssid_to_access_point[missing_ssid_name] |= {bssid}
+            else:
+                self.ssid_to_access_point[missing_ssid_name] = {bssid}
+
+        ap_node['channels'] |= set([frame.channel])
+
+        if frame.signal_strength:
+            ap_node['signal'] = frame.signal_strength
+
+        if frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA:
+            ap_node['devices'] |= (frame.macs - MACS_TO_IGNORE - {bssid})
+
+        # TODO: Unassociated?
+
+        ap_node['frames'].append((time.time(), frame.frame_bytes))
+
+    def update_device(self, mac, frame):
+        if mac in MACS_TO_IGNORE:
+            return
+
+        if mac not in self.devices:
+            dev_node = {'vendor': self.mac_vendor_db.lookup(mac),
+                        'signal': frame.signal_strength,
+                        'frames_in': [],
+                        'frames_out': []}
+            self.devices[mac] = dev_node
+        else:
+            dev_node = self.devices[mac]
+
+        dev_node['signal'] = frame.signal_strength
+
+        if mac == frame.src:
+            dev_node['frames_out'].append((time.time(), frame.frame_bytes))
+        elif mac == frame.dst:
+            dev_node['frames_in'].append((time.time(), frame.frame_bytes))
+    
+    def save_to_file(self, file_path):
+        """
+        Saves the map to format:
+
+        example_ssid_name:
+            bssids:
+                - 80:29:94:14:8a:1d
+            channels:
+                - 6
+                - 11
+            signal: -86
+            vendor: Google, Inc.
+            devices:
+                f4:f5:d8:2b:9f:f6:
+                    signal: -84
+                    vendor: Apple
+                    bytes_transfered: 200
+                00:25:00:ff:94:73:
+                    signal: -55
+                    vendor: Google, Inc.
+                    bytes_transfered: 138
+        """
+
+        with self.lock:
+            serialized_map = {}
+
+            def with_frames_summed(dev_node):
+                dev_node = copy.deepcopy(dev_node)
+                frames_in = sum([num_bytes for _, num_bytes in dev_node.pop('frames_in')])
+                frames_out = sum([num_bytes for _, num_bytes in dev_node.pop('frames_out')])
+                dev_node['bytes'] = frames_in + frames_out
+                return dev_node
+
+            dev_map = {mac: with_frames_summed(self.devices[mac]) for mac in self.devices}
+
+            for ssid in self.ssid_to_access_point:
+                ssid_bssids = list(self.ssid_to_access_point[ssid])
+                bssid_nodes = [self.access_points[bssid] for bssid in ssid_bssids]
+                ap_node = {'bssids': ssid_bssids,
+                           'vendor': bssid_nodes[0]['vendor'],  # Assume the vendor is same across ssid
+                           'signal': max([node['signal'] for node in bssid_nodes]),
+                           'channels': sorted(reduce(lambda acc, bssid_node: acc | bssid_node['channels'],
+                                                   bssid_nodes, set())),
+                           'devices': {mac: copy.deepcopy(dev_map[mac]) for mac in
+                                       reduce(lambda acc, bssid_node: acc + list(bssid_node['devices']),
+                                                        bssid_nodes, [])}}
+                serialized_map[ssid] = ap_node
+
+            with open(file_path, 'w') as f:
+                pyaml.dump(serialized_map, f, vspacing=[1, 0], safe=True)
+    
+    @staticmethod
+    def load_from_file(file_path):
+        with open(file_path, 'r') as f:
+            yaml_data = f.read()
+
+        yaml = ruamel.yaml.YAML()
+        map_data = yaml.load(yaml_data)
+
+        bssids_associated_with_ssids = set()
+        ssid_to_access_point = {}
+        access_points = {}
+        devices = {}
+
+        for ssid, ssid_entry in map_data.items():
+            unknown_ssid = ssid.startswith('unknown_ssid_')
+            for bssid in ssid_entry['bssids']:
+                ssid_to_access_point[ssid] = bssid
+
+                if not unknown_ssid:
+                    bssids_associated_with_ssids |= {bssid}
+
+                access_points[bssid] = {}
+
+    
+        # print(map_data)
+        return map_data

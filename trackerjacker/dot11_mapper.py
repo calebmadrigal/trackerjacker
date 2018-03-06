@@ -4,7 +4,6 @@
 import time
 import copy
 import threading
-from functools import reduce
 
 import pyaml
 import ruamel.yaml
@@ -20,6 +19,9 @@ class Dot11Map:
     """
 
     def __init__(self, map_data=None):
+        self.lock = threading.Lock()
+
+        # Needed for efficiently determining if there is no ssid known for a given bssid
         self.bssids_associated_with_ssids = set()
 
         # 'linksys' -> {'90:35:ab:1c:25:19', '80:81:a6:f5:29:22'}
@@ -40,15 +42,15 @@ class Dot11Map:
         #                         'frames_out': [(timestamp1, num_bytes)] }
         self.devices = {}
 
+        # Used by load_from_file factory function
         if map_data:
+            self.bssids_associated_with_ssids = map_data['bssids_associated_with_ssids']
             self.ssid_to_access_point = map_data['ssid_to_access_point']
-            self.bssids_associated_with_ssids = set(map_data['access_points'].keys())
             self.access_points = map_data['access_points']
             self.devices = map_data['devices']
 
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
 
-        self.lock = threading.Lock()
 
     def add_frame(self, frame):
         with self.lock:
@@ -57,7 +59,7 @@ class Dot11Map:
                 self.update_access_point(frame.bssid, frame)
 
             # Update Device data
-            for mac in (frame.macs - set([frame.bssid])):
+            for mac in frame.macs - {frame.bssid}:
                 self.update_device(mac, frame)
 
     def update_access_point(self, bssid, frame):
@@ -97,7 +99,7 @@ class Dot11Map:
             else:
                 self.ssid_to_access_point[missing_ssid_name] = {bssid}
 
-        ap_node['channels'] |= set([frame.channel])
+        ap_node['channels'] |= {frame.channel}
 
         if frame.signal_strength:
             ap_node['signal'] = frame.signal_strength
@@ -128,65 +130,73 @@ class Dot11Map:
             dev_node['frames_out'].append((time.time(), frame.frame_bytes))
         elif mac == frame.dst:
             dev_node['frames_in'].append((time.time(), frame.frame_bytes))
-    
+
     def save_to_file(self, file_path):
         """
-        Saves the map to format:
+        Serializes to file_path in a YAML format something like this:
 
         example_ssid_name:
-            bssids:
-                - 80:29:94:14:8a:1d
-            channels:
-                - 6
-                - 11
-            signal: -86
-            vendor: Google, Inc.
-            devices:
-                f4:f5:d8:2b:9f:f6:
-                    signal: -84
-                    vendor: Apple
-                    bytes_transfered: 200
-                00:25:00:ff:94:73:
-                    signal: -55
-                    vendor: Google, Inc.
-                    bytes_transfered: 138
+            80:29:94:14:8a:1d:
+                channels:
+                    - 6
+                    - 11
+                signal: -86
+                vendor: Google, Inc.
+                devices:
+                    f4:f5:d8:2b:9f:f6:
+                        signal: -84
+                        vendor: Apple
+                        bytes_transfered: 200
+                    00:25:00:ff:94:73:
+                        signal: -55
+                        vendor: Google, Inc.
+                        bytes_transfered: 138
+            71:29:94:14:8a:1d: ...
+        example_ssid_2: ...
+
+        Note that the bytes_in/out are lossily summarized in this process (and they are dropped upon map load,
+        which only takes place on program start).
         """
 
         with self.lock:
             serialized_map = {}
-
-            def with_frames_summed(dev_node):
-                dev_node = copy.deepcopy(dev_node)
-                frames_in = sum([num_bytes for _, num_bytes in dev_node.pop('frames_in')])
-                frames_out = sum([num_bytes for _, num_bytes in dev_node.pop('frames_out')])
-                dev_node['bytes'] = frames_in + frames_out
-                return dev_node
-
-            dev_map = {mac: with_frames_summed(self.devices[mac]) for mac in self.devices}
+            dev_map = {mac: self._with_frames_summed(self.devices[mac]) for mac in self.devices}
 
             for ssid in self.ssid_to_access_point:
-                ssid_bssids = list(self.ssid_to_access_point[ssid])
-                bssid_nodes = [self.access_points[bssid] for bssid in ssid_bssids]
-                ap_node = {'bssids': ssid_bssids,
-                           'vendor': bssid_nodes[0]['vendor'],  # Assume the vendor is same across ssid
-                           'signal': max([node['signal'] for node in bssid_nodes]),
-                           'channels': sorted(reduce(lambda acc, bssid_node: acc | bssid_node['channels'],
-                                                   bssid_nodes, set())),
-                           'devices': {mac: copy.deepcopy(dev_map[mac]) for mac in
-                                       reduce(lambda acc, bssid_node: acc + list(bssid_node['devices']),
-                                                        bssid_nodes, [])}}
-                serialized_map[ssid] = ap_node
+                serialized_map[ssid] = {}
+                for bssid in self.ssid_to_access_point[ssid]:
+                    serialized_map[ssid][bssid] = copy.deepcopy(self.access_points[bssid])
+                    serialized_map[ssid][bssid]['bytes'] = sum([num_bytes for _, num_bytes in
+                                                                 serialized_map[ssid][bssid].pop('frames', ())])
+                    serialized_map[ssid][bssid]['devices'] = {mac: copy.deepcopy(dev_map[mac])
+                                                              for mac in self.access_points[bssid]['devices']}
 
             with open(file_path, 'w') as f:
                 pyaml.dump(serialized_map, f, vspacing=[1, 0], safe=True)
     
     @staticmethod
+    def _with_frames_summed(dev_node):
+        """ Helper function to aid in serialization. """
+        dev_node = copy.deepcopy(dev_node)
+        frames_in = sum([num_bytes for _, num_bytes in dev_node.pop('frames_in', ())])
+        frames_out = sum([num_bytes for _, num_bytes in dev_node.pop('frames_out', ())])
+        dev_node['bytes'] = frames_in + frames_out
+        return dev_node
+
+    @staticmethod
     def load_from_file(file_path):
+        """
+        Factory function to load a Dot11Map from file_path provided.
+        """
         with open(file_path, 'r') as f:
             yaml_data = f.read()
 
-        yaml = ruamel.yaml.YAML()
+        yaml = ruamel.yaml.YAML(typ='safe')
         map_data = yaml.load(yaml_data)
+
+        # If file is empty, return empty map
+        if not map_data:
+            return Dot11Map()
 
         bssids_associated_with_ssids = set()
         ssid_to_access_point = {}
@@ -195,14 +205,38 @@ class Dot11Map:
 
         for ssid, ssid_entry in map_data.items():
             unknown_ssid = ssid.startswith('unknown_ssid_')
-            for bssid in ssid_entry['bssids']:
-                ssid_to_access_point[ssid] = bssid
 
+            for bssid, ap_node in ssid_entry.items():
                 if not unknown_ssid:
                     bssids_associated_with_ssids |= {bssid}
 
-                access_points[bssid] = {}
+                # Clean up access_point nodes
+                ap_node = {k: v for k, v in ap_node.items() if k not in {'bssid', 'ssid', 'bytes'}}
 
-    
-        # print(map_data)
-        return map_data
+                # We serialize by reducing the list of frames to a summation of the bytes, but loading back,
+                # we replace that with an empty list. This means frames data is intentionally lost in serialize/load.
+                ap_node['frames'] = []
+                ap_node['channels'] = set(ap_node['channels'])
+
+                if ssid not in ssid_to_access_point:
+                    ssid_to_access_point[ssid] = {bssid}
+                else:
+                    ssid_to_access_point[ssid] |= {bssid}
+
+                access_points[bssid] = ap_node
+
+                for mac, dev_node in ap_node['devices'].items():
+                    dev_node.pop('bytes')
+                    dev_node['frames_out'] = []
+                    dev_node['frames_in'] = []
+                    devices[mac] = dev_node
+
+                ap_node['devices'] = set([mac for mac in ap_node.pop('devices').keys()])
+
+        dot11_map = Dot11Map({
+            'bssids_associated_with_ssids': bssids_associated_with_ssids,
+            'ssid_to_access_point': ssid_to_access_point,
+            'access_points': access_points,
+            'devices': devices
+        })
+        return dot11_map

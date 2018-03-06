@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {'log_path': None,
                   'do_map': True,
                   'do_track': True,
                   'map_file': 'wifi_map.yaml',
-                  'map_save_period': 10,
+                  'map_save_interval': 10,
                   'threshold_bytes': 1,
                   'alert_cooldown': 30,
                   'alert_command': None,
@@ -79,7 +79,7 @@ class TrackerJacker:
                  # map args
                  do_map=True,
                  map_file='wifi_map.yaml',
-                 map_save_period=10,  # seconds
+                 map_save_interval=10,  # seconds
                  # track args
                  do_track=True,
                  devices_to_watch=(),
@@ -92,7 +92,7 @@ class TrackerJacker:
         self.do_map = do_map
         self.do_track = do_track
         self.map_file = map_file
-        self.map_save_period = map_save_period
+        self.map_save_interval = map_save_interval
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
@@ -110,9 +110,7 @@ class TrackerJacker:
             # Try to load map
             self.logger.info('Map output file: %s', self.map_file)
             if os.path.exists(self.map_file):
-                self.dog11_map = dot11_mapper.Dot11Map.load_from_file(self.map_file)
-                #previous_dot11_map = dot11_mapper.load_map_from_file(self.map_file)
-                #self.dot11_map = dot11_mapper.Dot11Map(map_data=previous_dot11_map)
+                self.dot11_map = dot11_mapper.Dot11Map.load_from_file(self.map_file)
             else:
                 self.logger.warning('Specified map file not found - creating new map file.')
 
@@ -170,7 +168,7 @@ class TrackerJacker:
             # (which is why this isn't under the 'if matched_matcs' block).
             if self.do_map:
                 self.dot11_map.add_frame(frame)
-                if time.time() - self.map_last_save >= self.map_save_period:
+                if time.time() - self.map_last_save >= self.map_save_interval:
                     # dot11_mapper.save_map_to_file(self.map_file, self.dot11_map)
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
@@ -180,10 +178,13 @@ class TrackerJacker:
         if frame.ssid and frame.bssid not in self.dot11_map.access_points.keys():
             self.logger.info('SSID found: %s, BSSID: %s, Channel: %d', frame.ssid, frame.bssid, frame.channel)
 
-        new_devices = frame.macs - self.dot11_map.devices.keys() - dot11_mapper.MACS_TO_IGNORE
-        for mac in new_devices:
+        new_macs = [mac for mac in frame.macs
+                    if mac not in (self.dot11_map.devices.keys() |
+                                   self.dot11_map.access_points.keys() |
+                                   dot11_mapper.MACS_TO_IGNORE)]
+        for mac in new_macs:
             self.logger.info('MAC found: %s, Channel: %d', mac, frame.channel)
-        
+
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)
 
@@ -236,6 +237,8 @@ def parse_command_line_args():
                         help='Threshold of packets in time window which causes alert')
     parser.add_argument('-w', '--time-window', type=int, dest='threshold_window',
                         help='Time window (in seconds) which alert threshold is applied to')
+    parser.add_argument('--map-save-interval', type=float, dest='map_save_interval',
+                        help='Number of seconds between saving the wifi map to disk')
     parser.add_argument('--alert-command', type=str, dest='alert_command',
                         help='Command to execute upon alert')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',

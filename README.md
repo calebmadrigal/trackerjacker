@@ -8,6 +8,10 @@ PyPI page: https://pypi.python.org/pypi/trackerjacker
 
     pip3 install trackerjacker
 
+## Visual Description
+
+![visual description](https://i.imgur.com/I5NH5KM.jpg)
+
 ## Usage
 
 Find detailed usage like this:
@@ -18,67 +22,165 @@ There are 2 major usage modes for `trackerjacker`: **map** mode and **track** mo
 
 ### Map mode example
 
-Map mode is used to find the Access Points and Devices within the range. Think of it like `nmap` for raw 802.11 mode.
+Map command:
 
-    $ trackerjacker --map -i wlan0mon
-    Channels available on wlan0mon: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104, 108, 110, 112]
-    Map output file: wifi_map.yaml
-    MAC found: 90:48:9a:29:85:8c, Channel: 1
-    MAC found: ff:ff:ff:ff:ff:ff, Channel: 1
-    SSID found: EDWARDS23, BSSID: 90:48:9a:29:85:8c, Channel: 1
-    MAC found: 54:e4:bd:8d:a6:b0, Channel: 1
-    MAC found: 9c:d2:1e:dc:ed:06, Channel: 1
-    MAC found: 00:00:00:00:00:00, Channel: 1
-    MAC found: 38:3b:c8:fe:15:3f, Channel: 1
-    SSID found: Castle Grey Skull, BSSID: 38:3b:c8:fe:15:3f, Channel: 1
-    MAC found: 38:3b:c8:fe:15:3d, Channel: 1
-    MAC found: cc:0d:ec:27:de:fb, Channel: 1
-    SSID found: [NULL][NULL][NULL][NULL][NULL][NULL][NULL], BSSID: cc:0d:ec:27:de:fb, Channel: 1
-    MAC found: 58:67:1a:f6:80:04, Channel: 1
+	trackerjacker -i wlan1337 --map
 
-Map mode outputs `wifi_map.yaml`, which looks something like this:
+By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all the nearby WiFi networks and all of their users. Here's an example `wifi_map.yaaml` file:
+	
+	BRCM_TEST_SSID:
+	  00:10:18:6b:7a:ea:
+	    bssid: 00:10:18:6b:7a:ea
+	    bytes: 5430
+	    channels:
+	    - 11
+	    devices:
+	      3c:07:71:15:f1:48:
+	        bytes: 798
+	        signal: 1
+	        vendor: Sony Corporation
+	      78:31:c1:7f:25:43:
+	        bytes: 4632
+	        signal: -52
+	        vendor: Apple, Inc.
+	    signal: -86
+	    ssid: BRCM_TEST_SSID
+	    vendor: Broadcom
+	
+	BRANSONS_WIFI:
+	  90:48:9a:e3:58:25:
+	    bssid: 90:48:9a:e3:58:25
+	    bytes: 5073
+	    channels:
+	    - 1
+	    devices:
+	      01:00:5e:96:e1:89:
+	        bytes: 476
+	        signal: -62
+	        vendor: ''
+	      30:8c:fb:66:23:91:
+	        bytes: 278
+	        signal: -46
+	        vendor: Dropcam
+	      34:23:ba:1c:ba:e7:
+	        bytes: 548
+	        signal: 4
+	        vendor: SAMSUNG ELECTRO-MECHANICS(THAILAND)
+	    signal: -80
+	    ssid: EDWARDS23
+	    vendor: Hon Hai Precision Ind. Co.,Ltd.
+	
+	TimeWarner8930:
+	  44:1c:a8:cf:3c:e7:
+	    bssid: 44:1c:a8:cf:3c:e7
+	    bytes: 5265
+	    channels:
+	    - 6
+	    devices: {}
+	    signal: -84
+	    ssid: TimeWarner8930
+	    vendor: Hon Hai Precision Ind. Co.,Ltd.
+	
+	hacker_network:
+	  80:2a:a8:e5:de:92:
+	    bssid: 80:2a:a8:e5:de:92
+	    bytes: 5895
+	    channels:
+	    - 11
+	    devices:
+	      80:1f:02:e6:44:96:
+	        bytes: 960
+	        signal: -46
+	        vendor: Edimax Technology Co. Ltd.
+	      80:2a:a8:8a:ec:c8:
+	        bytes: 472
+	        signal: 4
+	        vendor: Ubiquiti Networks Inc.
+	      80:2a:a8:be:09:a9:
+	        bytes: 5199
+	        signal: 4
+	        vendor: Ubiquiti Networks Inc.
+	      d8:49:2f:7a:f0:8f:
+	        bytes: 548
+	        signal: 4
+	        vendor: CANON INC.
+	    signal: -46
+	    ssid: hacker
+	    vendor: Ubiquiti Networks Inc.
+	  80:2a:a8:61:aa:2f:
+	    bssid: 80:2a:a8:61:aa:2f
+	    bytes: 5629
+	    channels:
+	    - 44
+	    - 48
+	    devices:
+	      78:88:6d:4e:e2:c9:
+	        bytes: 948
+	        signal: -52
+	        vendor: ''
+	      e4:8b:7f:d4:cb:25:
+	        bytes: 986
+	        signal: -48
+	        vendor: Apple, Inc.
+	    signal: -48
+	    ssid: null
+	    vendor: Ubiquiti Networks Inc.
+	  82:2a:a8:51:32:25:
+	    bssid: 82:2a:a8:51:32:25
+	    bytes: 3902
+	    channels:
+	    - 48
+	    devices:
+	      b8:e8:56:f5:a0:70:
+	        bytes: 1188
+	        signal: -34
+	        vendor: Apple, Inc.
+	    signal: -14
+	    ssid: hacker
+	    vendor: ''
+	  82:2a:a8:fc:33:b6:
+	    bssid: 82:2a:a8:fc:33:b6
+	    bytes: 7805
+	    channels:
+	    - 10
+	    - 11
+	    - 12
+	    devices:
+	      78:31:c1:7f:25:43:
+	        bytes: 4632
+	        signal: -52
+	        vendor: Apple, Inc.
+	      7c:dd:90:fe:b4:87:
+	        bytes: 423223
+	        signal: 4
+	        vendor: Shenzhen Ogemray Technology Co., Ltd.
+	      80:2a:a8:be:09:a9:
+	        bytes: 5199
+	        signal: 4
+	        vendor: Ubiquiti Networks Inc.
+	    signal: -62
+	    ssid: null
+	    vendor: ''
 
-    # trackerjacker map
-	1:  # channel
-	  "38:3b:c8:fe:15:3e":  # bssid; 2Wire Inc
-		ssid: "ATT8ais9uw"
-		macs:
-		  - "38:3b:c8:fe:15:3d"  # 2Wire Inc
-	  "38:3b:c8:fe:15:3f":  # bssid; 2Wire Inc
-		ssid: "Castle Grey Skull"
-		macs:
-	  "44:e1:37:52:d5:20":  # bssid; ARRIS Group, Inc.
-		ssid: "ATT760"
-		macs:
-	  "90:48:9a:29:85:8c":  # bssid; Hon Hai Precision Ind. Co.,Ltd.
-		ssid: "EDWARDS23"
-		macs:
-		  - "54:e4:bd:8d:a6:b0"  # FN-LINK TECHNOLOGY LIMITED
-		  - "9c:d2:1e:dc:ed:06"  # Hon Hai Precision Ind. Co.,Ltd.
-	  "cc:0d:ec:27:de:fb":  # bssid; Cisco SPVTG
-		ssid: "[NULL][NULL][NULL][NULL][NULL][NULL][NULL]"
-		macs:
-	  "f8:35:dd:43:1a:25":  # bssid; Gemtek Technology Co., Ltd.
-		ssid: "MOTOROLA-903E1"
-		macs:
-	  "unassociated":  # bssid; 
-		macs:
-		  - "2c:54:cf:bd:a7:45"  # LG Electronics (Mobile Communications)
-		  - "58:67:1a:f6:80:04"  # Barnes&Noble
+Note that, since this is YAML, you can easily use it as an input for other scripts of your own devising.
 
 ### Track mode example
 
-Track mode allows you to specify some number of MAC addresses to watch, and if the specified devices exceeds the threshold (in bytes), an alert will be triggered.
+Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `-t 450000` (specifying an alert threshold of 450000 bytes) an alert will be triggered. Thresholds can also be set on a per-device basis by using a config file (see the `-c` option).
 
-    $ trackerjacker -i wlan0mon --track -m 7C:70:BC:57:F0:77 -t 450000 --alert-command "/root/trigger_alarm.sh" --channels-to-monitor 11
-    Channels available on wlan0mon: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104, 108, 110, 112]
-    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 0
-    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 599
-    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 647
-    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 0
-    Bytes received in last 10 seconds for 7c:70:bc:57:f0:77: 541386
-    2017-03-27 22:22:19.155201: Detected 7c:70:bc:57:f0:77
+    $ trackerjacker -i wlan0mon --track -m 7C:70:BC:78:70:21 -t 450000 
+    --alert-command "/root/trigger_alarm.sh" --channels-to-monitor 11
+    Channels available on wlan0mon: 
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104, 108, 110, 112]
+    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 0
+    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 599
+    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 647
+    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 0
+    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 541386
+    2017-03-27 22:22:19.155201: Detected 7C:70:BC:78:70:21
 		Congratulations! You've fired the alarm_triggered event
+
+In this particular example, I was watching a security camera to determine when it was uploading a video (indicating motion was detected) so that I could turn on my security system sirens (which was the original genesis of this project).
 
 ## Example use-cases
 
@@ -133,6 +235,8 @@ A few notes about this:
 
 ### Example: Enable/Disable monitor mode on interface
 
+Trackerjacker comes with a few other utility functions relevant to WiFi hacking. One of these is the ability to turn on monitor mode on a specific interface.
+
 Enable monitor mode:
 
     python3 trackerjacker.py --monitor-mode-on -i wlan0
@@ -141,7 +245,7 @@ Disable monitor mode:
 
     python3 trackerjacker.py --monitor-mode-off -i wlan0mon
 
-Note that trackerjacker will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications.
+Note that trackerjacker will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications (or for quicker starup of trackerjacker, if you plan to be starting/exiting to test stuff).
 
 ### Example: Set adapter channel
 
@@ -154,10 +258,14 @@ Note that trackerjacker will automatically switch channels as necessary during n
 - [x] Hosted in PyPI
 - [x] Radio signal strength for APs
 - [x] Radio signal strength for individual macs
+- [x] Build map by data exchanged (exclude beacons)
+- [x] Packet count by AP
+- [x] Packet count by MAC
 - [ ] Tracking by SSID (and not just BSSID)
-- [ ] Packet count by AP
-- [ ] Packet count by MAC
-- [ ] Build map by data exchanged (exclude beacons)
+- [ ] Mapping a specific SSID
+- [ ] Easier way to input per-device tracking thresholds
+- [ ] Performance enhancement: not shelling out for channel switching
+- [ ] Fox hunt mode
 - [ ] "Jack" mode - deauth attacks
 - [ ] Mac (OS X) support
 

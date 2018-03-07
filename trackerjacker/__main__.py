@@ -2,6 +2,7 @@
 # pylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915, C0413
 
 import os
+import ast
 import sys
 import time
 import json
@@ -25,10 +26,9 @@ DEFAULT_CONFIG = {'log_path': None,
                   'aps_to_watch': [],
                   'threshold_window': 10,
                   'do_map': True,
-                  'do_track': True,
+                  'do_track': False,
                   'map_file': 'wifi_map.yaml',
                   'map_save_interval': 10,
-                  'threshold_bytes': 1,
                   'alert_cooldown': 30,
                   'alert_command': None,
                   'channels_to_monitor': None,
@@ -81,10 +81,9 @@ class TrackerJacker:
                  map_file='wifi_map.yaml',
                  map_save_interval=10,  # seconds
                  # track args
-                 do_track=True,
+                 do_track=False,
                  devices_to_watch=(),
                  aps_to_watch=(),
-                 threshold_bytes=1,
                  threshold_window=10,  # seconds
                  alert_cooldown=30,
                  alert_command=None):
@@ -132,15 +131,19 @@ class TrackerJacker:
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
+        # TODO: Make param for this
+        eval_interval = 5
+
         if self.do_track:
             self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger, devices_to_watch, aps_to_watch,
-                                                            threshold_bytes, threshold_window, alert_cooldown,
-                                                            alert_command)
+                                                            threshold_window, alert_cooldown,
+                                                            alert_command, eval_interval, self.dot11_map)
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
             frame = dot11_frame.Dot11Frame(pkt, int(self.iface_manager.current_channel))
-            self.log_newly_found(frame)
+            if self.do_map:
+                self.log_newly_found(frame)
 
             if self.display_all_packets:
                 print('\t', pkt.summary())
@@ -159,17 +162,20 @@ class TrackerJacker:
 
                 # If Track mode enabled, do it. Note that tracking by "devices to watch" only
                 # affects tracking, not mapping.
-                if self.do_track:
-                    num_bytes_in_pkt = len(pkt)
-                    for mac in matched_macs:
-                        self.dot11_tracker.add_bytes_for_mac(mac, num_bytes_in_pkt)
+
+                # I believe this type of updating is no longer needed since the data is in the map
+
+                # if self.do_track:
+                #     num_bytes_in_pkt = len(pkt)
+                #     for mac in matched_macs:
+                #         self.dot11_tracker.add_bytes_for_mac(mac, num_bytes_in_pkt)
 
             # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
             # (which is why this isn't under the 'if matched_matcs' block).
+            # Note: we update the map whether do_map is true or false since it's used for tracking; just don't save map
+            self.dot11_map.add_frame(frame)
             if self.do_map:
-                self.dot11_map.add_frame(frame)
                 if time.time() - self.map_last_save >= self.map_save_interval:
-                    # dot11_mapper.save_map_to_file(self.map_file, self.dot11_map)
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
 
@@ -191,7 +197,7 @@ class TrackerJacker:
         self.iface_manager.start()
 
         if self.do_track:
-            self.dot11_tracker.startTracking()
+            self.dot11_tracker.start_tracking()
 
         scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
 
@@ -233,8 +239,6 @@ def parse_command_line_args():
                         help='Access point(s) to track - specified by BSSID; comma separated for multiple')
     parser.add_argument('--channels-to-monitor', type=str, dest='channels_to_monitor',
                         help='Channels to monitor; comma separated for multiple')
-    parser.add_argument('-t', '--threshold', type=int, dest='threshold_bytes',
-                        help='Threshold of packets in time window which causes alert')
     parser.add_argument('-w', '--time-window', type=int, dest='threshold_window',
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--map-save-interval', type=float, dest='map_save_interval',
@@ -316,10 +320,21 @@ def build_config(args):
     macs_from_args = []
     aps_from_args = []
 
+    # TODO: Fix this for new dot11_tracker param format
+    # TODO: Update config file to this format
+
+    # Converts from cli param format like: 'aa:bb:cc:dd:ee:ff':(4000,) to a map like
+    #   {'aa:bb:cc:dd:ee:ff': {'threshold': 4000, 'power': -30},
+    #    'ff:ee:dd:cc:bb:aa': {'threshold': 0, 'power': -30}}
     if args.devices_to_watch:
-        macs_from_args = [{'mac': mac} for mac in args.devices_to_watch.split(',')]
+        macs_from_args = parse_devices_to_watch_param(args.devices_to_watch)
+        # macs_from_args = [{'mac': mac} for mac in args.devices_to_watch.split(',')]
+
+    # Converts from cli param format like 'my_ssid1':5000,'bssid2':1337 to a map like:
+    #   {'my_ssid1': {'threshold': 5000}, 'bssid2': {'threshold': 1337} }
     if args.aps_to_watch:
-        macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
+        #macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
+        aps_from_args = parse_aps_to_watch_param(args.aps_to_watch)
 
     non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
                        'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
@@ -330,6 +345,10 @@ def build_config(args):
 
     # Config from args trumps everything
     config.update(config_from_args)
+
+    # Only allow track or map mode at once
+    if config['do_track']:
+        config['do_map'] = False
 
     config['devices_to_watch'] = macs_from_config + macs_from_args
     config['aps_to_watch'] = aps_from_config + aps_from_args
@@ -342,6 +361,45 @@ def build_config(args):
         pprint.pprint(config)
 
     return config
+
+
+def parse_devices_to_watch_param(devs_to_watch_str):
+    """ Parse string to represent devices to watch config
+
+    Valid examples:
+        * aa:bb:cc:dd:ee:ff,11:22:33:44:55:66
+            - This means look for any traffic from either address
+        * 'aa:bb:cc:dd:ee:ff':1337,'11:22:33:44:55:66':1000
+            - This means look for 1337 bytes for the first address, and 1000 for the second
+        * 'aa:bb:cc:dd:ee:ff':(1337,),'11:22:33:44:55:66':(,-30)
+            - This means look for 1337 bytes threshold for the first address and an RSSI power level of >= -30dBm
+    """
+
+    devs_to_watch_map = {}
+
+    # Try to parse as dict first
+    if not (devs_to_watch_str.startswith('{') and devs_to_watch_str.endswith('}')):
+        devs_to_watch_str_as_dict = '{' + devs_to_watch_str + '}'
+    else:
+        devs_to_watch_str_as_dict = devs_to_watch_str
+
+    try:
+        # Try to parse as a python literal
+        devs_to_watch_parsed = ast.literal_eval(devs_to_watch_str_as_dict)
+        # Do more processing
+
+        return devs_to_watch_parsed
+    except ValueError:
+        # Try parse as list
+        pass
+
+    return devs_to_watch_map
+
+
+def parse_aps_to_watch_param(devs_to_watch_str):
+    aps_to_watch_map = {}
+    # TODO
+    return aps_to_watch_map
 
 
 def main():

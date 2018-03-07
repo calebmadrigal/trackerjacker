@@ -226,6 +226,7 @@ class Dot11InterfaceManager:
         self.current_channel = channel_num
 
     def update_frame(self, frame):
+        # TODO: Switch over to looking at frame len
         self.num_msgs_received_this_channel += 1
 
     def start(self):

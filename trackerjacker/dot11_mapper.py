@@ -4,6 +4,7 @@
 import time
 import copy
 import threading
+from functools import reduce
 
 import pyaml
 import ruamel.yaml
@@ -19,7 +20,7 @@ class Dot11Map:
     """
 
     def __init__(self, map_data=None):
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
         # Needed for efficiently determining if there is no ssid known for a given bssid
         self.bssids_associated_with_ssids = set()
@@ -51,7 +52,6 @@ class Dot11Map:
 
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
 
-
     def add_frame(self, frame):
         with self.lock:
             # Update Access Point data
@@ -61,6 +61,44 @@ class Dot11Map:
             # Update Device data
             for mac in frame.macs - {frame.bssid}:
                 self.update_device(mac, frame)
+
+            # TODO: Make sure beacons add 1 to frame counts (so that if looking for a threshold of 1 bytes theys how up)
+
+    def get_dev_node(self, mac):
+        """ Returns ap_node associated with mac in a thread-safe manner. """
+        device_node = None
+        with self.lock:
+            if mac in self.devices:
+                device_node = copy.deepcopy(self.devices[mac])
+        return device_node
+
+    def get_ap_by_bssid(self, bssid):
+        """ Returns ap_node associated with mac in a thread-safe manner. """
+        ap_node = None
+        with self.lock:
+            if bssid in self.access_points:
+                ap_node = copy.deepcopy(self.access_points[bssid])
+        return ap_node
+
+    def get_ap_nodes_by_ssid(self, ssid):
+        ap_nodes = None
+        with self.lock:
+            if ssid in self.ssid_to_access_point:
+                ap_bssid_list = self.ssid_to_access_point[ssid]
+                ap_nodes = [self.get_ap_by_bssid(bssid) for bssid in ap_bssid_list]
+        return ap_nodes
+
+    def get_channels_by_mac(self, mac):
+        dev_node = self.get_dev_node(mac)
+        return dev_node.get('channels', ()) if dev_node else ()
+
+    def get_channels_by_bssid(self, bssid):
+        ap_node = self.get_ap_by_bssid(bssid)
+        return ap_node.get('channels', ()) if ap_node else ()
+
+    def get_channels_by_ssid(self, ssid):
+        ap_nodes = self.get_ap_nodes_by_ssid(ssid)
+        return reduce(lambda acc, ap_chans: acc+ap_chans, [ap.get('channels', ()) for ap in ap_nodes], [])
 
     def update_access_point(self, bssid, frame):
         if bssid in MACS_TO_IGNORE:

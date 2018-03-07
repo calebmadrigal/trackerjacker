@@ -1,6 +1,6 @@
 # trackerjacker
 
-Finds and tracks wifi devices through raw 802.11 monitoring.
+Like nmap for mapping wifi networks you're not connected to. Maps and tracks wifi networks and devices through raw 802.11 monitoring.  
 
 PyPI page: https://pypi.python.org/pypi/trackerjacker
 

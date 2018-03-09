@@ -171,7 +171,8 @@ Track mode allows you to specify some number of MAC addresses to watch, and if a
     $ trackerjacker -i wlan0mon --track -m 7C:70:BC:78:70:21 -t 450000 
     --alert-command "/root/trigger_alarm.sh" --channels-to-monitor 11
     Channels available on wlan0mon: 
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104, 108, 110, 112]
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104,
+		108, 110, 112]
     Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 0
     Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 599
     Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 647
@@ -209,14 +210,9 @@ And here's the example config file called `my_config.json`:
 
 ```
 {
-    "iface": "wlan0mon",
-    "devices_to_watch": [
-        {"mac": "5f:cb:53:1c:8a:2c", "name": "Bob's iPhone"},
-        {"mac": "32:44:1b:d7:a1:5b", "name": "Alice's iPhone"},
-        {"mac": "f2:43:2b:e5:c3:6d", "name": "Security camera", "threshold": 20000},
-        "44:61:32:C6:34:8F"],
-    "aps_to_watch": [{"bssid": "c6:23:ef:33:cc:a2"}],
-    "threshold_bytes": 1,
+    "iface": "wlan1337",
+    "devices_to_watch": {"5f:cb:53:1c:8a:2c": 1000, "32:44:1b:d7:a1:5b": 2000},
+    "aps_to_watch": {"c6:23:ef:33:cc:a2": 500},
     "threshold_window": 10,
     "channels_to_monitor": [1, 6, 11, 52],
     "channel_switch_scheme": "round_robin"

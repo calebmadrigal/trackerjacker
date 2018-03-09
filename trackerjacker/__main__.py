@@ -336,6 +336,8 @@ def build_config(args):
     # Only allow track or map mode at once
     if config['do_track']:
         config['do_map'] = False
+    if not config['do_track']:
+        config['do_map'] = True
 
     config['devices_to_watch'] = dict(macs_from_config, **macs_from_args)
     config['aps_to_watch'] = dict(aps_from_config, **aps_from_args)

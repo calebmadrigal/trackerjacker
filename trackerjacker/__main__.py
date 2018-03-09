@@ -85,6 +85,8 @@ class TrackerJacker:
                  devices_to_watch=(),
                  aps_to_watch=(),
                  threshold_window=10,  # seconds
+                 eval_interval=5,  # seconds between looking for devices being tracked
+                 threshold_is_power=False,
                  alert_cooldown=30,
                  alert_command=None):
 
@@ -94,6 +96,7 @@ class TrackerJacker:
         self.map_save_interval = map_save_interval
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
+        self.threshold_is_power = threshold_is_power
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
 
         if logger:
@@ -131,13 +134,11 @@ class TrackerJacker:
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
-        # TODO: Make param for this
-        eval_interval = 5
-
         if self.do_track:
             self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger, devices_to_watch, aps_to_watch,
                                                             threshold_window, alert_cooldown,
-                                                            alert_command, eval_interval, self.dot11_map)
+                                                            alert_command, eval_interval, self.threshold_is_power,
+                                                            self.dot11_map)
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
@@ -159,16 +160,6 @@ class TrackerJacker:
                 # Display matched packets (if specified)
                 if self.display_matching_packets and not self.display_all_packets:
                     print('\t', pkt.summary())
-
-                # If Track mode enabled, do it. Note that tracking by "devices to watch" only
-                # affects tracking, not mapping.
-
-                # I believe this type of updating is no longer needed since the data is in the map
-
-                # if self.do_track:
-                #     num_bytes_in_pkt = len(pkt)
-                #     for mac in matched_macs:
-                #         self.dot11_tracker.add_bytes_for_mac(mac, num_bytes_in_pkt)
 
             # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
             # (which is why this isn't under the 'if matched_matcs' block).
@@ -243,6 +234,10 @@ def parse_command_line_args():
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--map-save-interval', type=float, dest='map_save_interval',
                         help='Number of seconds between saving the wifi map to disk')
+    parser.add_argument('--eval_interval', type=float, dest='eval_interval',
+                        help='Number of seconds between looking for tracked devices')
+    parser.add_argument('--power', action='store_true', dest='threshold_is_power',
+                        help='If specified, all tracking thresholds are taken to represent RSSI power levels')
     parser.add_argument('--alert-command', type=str, dest='alert_command',
                         help='Command to execute upon alert')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
@@ -306,10 +301,8 @@ def build_config(args):
             if invalid_keys:
                 raise TJException('Invalid keys found in config file: {}'.format(invalid_keys))
 
-            macs_from_config = [{'mac': dev} if isinstance(dev, str) else dev
-                                for dev in config_from_file.pop('devices_to_watch', [])]
-            aps_from_config = [{'bssid': ap} if isinstance(ap, str) else ap
-                               for ap in config_from_file.pop('aps_to_watch', [])]
+            macs_from_config = config_from_file.pop('devices_to_watch', {})
+            aps_from_config = config_from_file.pop('aps_to_watch', {})
 
             config.update(config_from_file)
             print('Loaded configuration from {}'.format(args.config))
@@ -317,24 +310,18 @@ def build_config(args):
         except (IOError, OSError, json.decoder.JSONDecodeError) as e:
             raise TJException('Error loading config file ({}): {}'.format(args.config, e))
 
-    macs_from_args = []
-    aps_from_args = []
+    macs_from_args = {}
+    aps_from_args = {}
 
-    # TODO: Fix this for new dot11_tracker param format
-    # TODO: Update config file to this format
-
-    # Converts from cli param format like: 'aa:bb:cc:dd:ee:ff':(4000,) to a map like
-    #   {'aa:bb:cc:dd:ee:ff': {'threshold': 4000, 'power': -30},
-    #    'ff:ee:dd:cc:bb:aa': {'threshold': 0, 'power': -30}}
+    # Converts from cli param format like: "aa:bb:cc:dd:ee:ff,11:22:33:44:55:66' to a map like
+    #   {'aa:bb:cc:dd:ee:ff': 1, '11:22:33:44:55:66': 1}
     if args.devices_to_watch:
-        macs_from_args = parse_devices_to_watch_param(args.devices_to_watch)
-        # macs_from_args = [{'mac': mac} for mac in args.devices_to_watch.split(',')]
+        macs_from_args = parse_watch_list(args.devices_to_watch)
 
-    # Converts from cli param format like 'my_ssid1':5000,'bssid2':1337 to a map like:
-    #   {'my_ssid1': {'threshold': 5000}, 'bssid2': {'threshold': 1337} }
+    # Converts from cli param format like "my_ssid1=5000,bssid2=1337" to a map like:
+    #   {'my_ssid1': 5000, 'bssid2': 1337}
     if args.aps_to_watch:
-        #macs_from_args = [{'bssid': bssid} for bssid in args.aps_to_watch.split(',')]
-        aps_from_args = parse_aps_to_watch_param(args.aps_to_watch)
+        aps_from_args = parse_watch_list(args.aps_to_watch)
 
     non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
                        'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
@@ -350,8 +337,9 @@ def build_config(args):
     if config['do_track']:
         config['do_map'] = False
 
-    config['devices_to_watch'] = macs_from_config + macs_from_args
-    config['aps_to_watch'] = aps_from_config + aps_from_args
+    config['devices_to_watch'] = dict(macs_from_config, **macs_from_args)
+    config['aps_to_watch'] = dict(aps_from_config, **aps_from_args)
+
     if args.channels_to_monitor:
         channels_to_monitor = args.channels_to_monitor.split(',')
         config['channels_to_monitor'] = channels_to_monitor
@@ -363,43 +351,45 @@ def build_config(args):
     return config
 
 
-def parse_devices_to_watch_param(devs_to_watch_str):
+def parse_watch_list(watch_str):
     """ Parse string to represent devices to watch config
 
     Valid examples:
+        * aa:bb:cc:dd:ee:ff
+            - Threshold of 1 for the given MAC address
         * aa:bb:cc:dd:ee:ff,11:22:33:44:55:66
             - This means look for any traffic from either address
-        * 'aa:bb:cc:dd:ee:ff':1337,'11:22:33:44:55:66':1000
+        * aa:bb:cc:dd:ee:ff=1337, 11:22:33:44:55:66=1000
             - This means look for 1337 bytes for the first address, and 1000 for the second
-        * 'aa:bb:cc:dd:ee:ff':(1337,),'11:22:33:44:55:66':(,-30)
-            - This means look for 1337 bytes threshold for the first address and an RSSI power level of >= -30dBm
+        * my_ssid, 11:22:33:44:55:66=1000
+            - This means look for 1 byte from my_ssid or 1000 for the second
+    
+    Returns dict in this format:
+        {'aa:bb:cc:dd:ee:ff': threshold1, '11:22:33:44:55:66': threshold2}
     """
 
-    devs_to_watch_map = {}
+    watch_list = [i.strip() for i in watch_str.split(',')]
+    watch_dict = {}
 
-    # Try to parse as dict first
-    if not (devs_to_watch_str.startswith('{') and devs_to_watch_str.endswith('}')):
-        devs_to_watch_str_as_dict = '{' + devs_to_watch_str + '}'
-    else:
-        devs_to_watch_str_as_dict = devs_to_watch_str
+    for watch_part in watch_list:
+        if '=' in watch_part:
+            # dev_id is a MAC, BSSID, or SSID
+            dev_id, threshold = [i.strip() for i in watch_part.split('=')]
+            try:
+                threshold = int(threshold)
+            except ValueError:
+                # Can't parse with "dev_id=threshold" formula, so assume '=' sign was part of ssid
+                dev_id = watch_part
+                threshold = 1
 
-    try:
-        # Try to parse as a python literal
-        devs_to_watch_parsed = ast.literal_eval(devs_to_watch_str_as_dict)
-        # Do more processing
+            watch_part.split('=')
+        else:
+            # Can't parse with "dev_id=threshold" formula, so assume...
+            dev_id = watch_part
+            threshold = 1
 
-        return devs_to_watch_parsed
-    except ValueError:
-        # Try parse as list
-        pass
-
-    return devs_to_watch_map
-
-
-def parse_aps_to_watch_param(devs_to_watch_str):
-    aps_to_watch_map = {}
-    # TODO
-    return aps_to_watch_map
+        watch_dict[dev_id] = threshold
+    return watch_dict
 
 
 def main():

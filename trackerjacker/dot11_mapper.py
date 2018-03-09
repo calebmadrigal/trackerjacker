@@ -62,6 +62,8 @@ class Dot11Map:
             for mac in frame.macs - {frame.bssid}:
                 self.update_device(mac, frame)
 
+            # TODO: trim old frames (those that are older than window)
+
             # TODO: Make sure beacons add 1 to frame counts (so that if looking for a threshold of 1 bytes theys how up)
 
     def get_dev_node(self, mac):

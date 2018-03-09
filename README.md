@@ -253,6 +253,13 @@ Note that trackerjacker will automatically enable/disable monitor mode if necess
 
 Note that trackerjacker will automatically switch channels as necessary during normal map/track actions. This option is just useful if you want to set the channel on an interface for use with other applications.
 
+## Recommended hardware
+
+* Panda PAU07 N600 Dual Band (nice, small, 2.4GHz and 5GHz)
+* Panda PAU09 N600 Dual Band (higher power, 2.4GHz and 5GHz)
+* Alfa AWUS052NH Dual-Band 2x 5dBi (high power, 2.4GHz and 5GHz, large, ugly)
+* TP-Link N150 (works well, but not dual band)
+
 ## Roadmap
 
 - [x] Hosted in PyPI
@@ -261,9 +268,9 @@ Note that trackerjacker will automatically switch channels as necessary during n
 - [x] Build map by data exchanged (exclude beacons)
 - [x] Packet count by AP
 - [x] Packet count by MAC
+- [x] Easier way to input per-device tracking thresholds
 - [ ] Tracking by SSID (and not just BSSID)
 - [ ] Mapping a specific SSID
-- [ ] Easier way to input per-device tracking thresholds
 - [ ] Performance enhancement: not shelling out for channel switching
 - [ ] Fox hunt mode
 - [ ] "Jack" mode - deauth attacks

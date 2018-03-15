@@ -2,7 +2,6 @@
 # pylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915, C0413
 
 import os
-import ast
 import sys
 import time
 import json
@@ -118,6 +117,8 @@ class TrackerJacker:
 
         if not self.dot11_map:
             self.dot11_map = dot11_mapper.Dot11Map()
+
+        self.dot11_map.window = threshold_window
 
         if channel_switch_scheme == 'default':
             if self.do_map:

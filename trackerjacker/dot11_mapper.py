@@ -4,6 +4,7 @@
 import time
 import copy
 import threading
+import collections
 from functools import reduce
 
 import pyaml
@@ -14,6 +15,16 @@ from . import ieee_mac_vendor_db  # pylint: disable=E0401
 MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
 
 
+def trim_frames_to_window(frames, window, now=time.time()):
+    oldest_time_in_window = now - window
+    oldest_in_window = -1  # Assume everything is in the window
+    for index, frame in enumerate(frames):
+        if frame[0] >= oldest_time_in_window:
+            oldest_in_window = index
+            break
+    return frames[oldest_in_window:]
+
+
 class Dot11Map:
     """
     Represents the observed state of the 802.11 radio space.
@@ -21,6 +32,11 @@ class Dot11Map:
 
     def __init__(self, map_data=None):
         self.lock = threading.RLock()
+
+        # Used for determining when to trim frame lists
+        self.frame_count_by_device = collections.Counter()
+        self.trim_every_num_frames = 100
+        self.window = 10  # seconds
 
         # Needed for efficiently determining if there is no ssid known for a given bssid
         self.bssids_associated_with_ssids = set()
@@ -62,9 +78,7 @@ class Dot11Map:
             for mac in frame.macs - {frame.bssid}:
                 self.update_device(mac, frame)
 
-            # TODO: trim old frames (those that are older than window)
-
-            # TODO: Make sure beacons add 1 to frame counts (so that if looking for a threshold of 1 bytes theys how up)
+            # TODO: Make sure beacons add 1 to frame counts (so that if looking for a threshold of 1 bytes they show up)
 
     def get_dev_node(self, mac):
         """ Returns ap_node associated with mac in a thread-safe manner. """
@@ -147,9 +161,12 @@ class Dot11Map:
         if frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA:
             ap_node['devices'] |= (frame.macs - MACS_TO_IGNORE - {bssid})
 
-        # TODO: Unassociated?
-
         ap_node['frames'].append((time.time(), frame.frame_bytes))
+
+        # Trim old frames (those that are older than window)
+        self.frame_count_by_device[bssid] += 1
+        if self.frame_count_by_device[bssid] % self.trim_every_num_frames == 0:
+            ap_node['frames'] = trim_frames_to_window(ap_node['frames'], self.window)
 
     def update_device(self, mac, frame):
         if mac in MACS_TO_IGNORE:
@@ -170,6 +187,12 @@ class Dot11Map:
             dev_node['frames_out'].append((time.time(), frame.frame_bytes))
         elif mac == frame.dst:
             dev_node['frames_in'].append((time.time(), frame.frame_bytes))
+
+        # Trim old frames (those that are older than window)
+        self.frame_count_by_device[mac] += 1
+        if self.frame_count_by_device[mac] % self.trim_every_num_frames == 0:
+            dev_node['frames_out'] = trim_frames_to_window(dev_node['frames_out'], self.window)
+            dev_node['frames_in'] = trim_frames_to_window(dev_node['frames_in'], self.window)
 
     def save_to_file(self, file_path):
         """
@@ -202,18 +225,28 @@ class Dot11Map:
             serialized_map = {}
             dev_map = {mac: self._with_frames_summed(self.devices[mac]) for mac in self.devices}
 
+            associated_devices = set()
+
             for ssid in self.ssid_to_access_point:
                 serialized_map[ssid] = {}
+
+                associated_devices |= set(self.ssid_to_access_point[ssid])
+
                 for bssid in self.ssid_to_access_point[ssid]:
                     serialized_map[ssid][bssid] = copy.deepcopy(self.access_points[bssid])
                     serialized_map[ssid][bssid]['bytes'] = sum([num_bytes for _, num_bytes in
-                                                                 serialized_map[ssid][bssid].pop('frames', ())])
+                                                                serialized_map[ssid][bssid].pop('frames', ())])
                     serialized_map[ssid][bssid]['devices'] = {mac: copy.deepcopy(dev_map[mac])
                                                               for mac in self.access_points[bssid]['devices']}
 
+                    associated_devices |= set(serialized_map[ssid][bssid]['devices'].keys())
+
+            unassociated_devices = set(self.devices.keys()) - associated_devices
+            serialized_map['~unassociated_devices'] = {mac: dev_map[mac] for mac in unassociated_devices}
+
             with open(file_path, 'w') as f:
                 pyaml.dump(serialized_map, f, vspacing=[1, 0], safe=True)
-    
+
     @staticmethod
     def _with_frames_summed(dev_node):
         """ Helper function to aid in serialization. """
@@ -244,6 +277,16 @@ class Dot11Map:
         devices = {}
 
         for ssid, ssid_entry in map_data.items():
+            if ssid == '~unassociated_devices':
+                # ~unassociated_devices is not an SSID, but a special name to denote the list of devices
+                # not associated with any network, so it needs to be processed differently.
+                for mac, dev_node in ssid_entry.items():
+                    dev_node.pop('bytes')
+                    dev_node['frames_out'] = []
+                    dev_node['frames_in'] = []
+                    devices[mac] = dev_node
+                continue
+
             unknown_ssid = ssid.startswith('unknown_ssid_')
 
             for bssid, ap_node in ssid_entry.items():

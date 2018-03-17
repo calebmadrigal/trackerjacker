@@ -1,3 +1,4 @@
+# pylint: disable=C0111, C0413, C0103, E0401
 import unittest
 from trackerjacker.__main__ import parse_watch_list
 

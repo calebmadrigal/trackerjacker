@@ -68,6 +68,8 @@ def get_arg_parser():
                         help='Default power threshold (unless overridden on a per-dev basis) for triggering')
     parser.add_argument('--trigger-command', type=str, dest='trigger_command',
                         help='Command to execute upon alert')
+    parser.add_argument('--trigger-cooldown', type=str, dest='trigger_cooldown',
+                        help='Time in seconds between trigger executions for a particular device')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
                         help='If true, displays all packets matching filters')
     parser.add_argument('--map-file', type=str, dest='map_file', default='wifi_map.yaml',
@@ -129,7 +131,12 @@ def parse_command_line_watch_list(watch_str):
     return watch_dict
 
 
-def determine_watch_list(to_watch_from_args, to_watch_from_config, threshold, power, general_trigger_command):
+def determine_watch_list(to_watch_from_args,
+                         to_watch_from_config,
+                         generic_threshold,
+                         generic_power,
+                         generic_trigger_command,
+                         generic_trigger_cooldown):
     """ Coalesces the to_watch list from the command-line arguments, the config file,
     and the the general threshold, power, and trigger command.
     """
@@ -147,19 +154,30 @@ def determine_watch_list(to_watch_from_args, to_watch_from_config, threshold, po
 
     watch_config_dict = {}
     for dev_id in to_watch_from_args.keys() | to_watch_from_config.keys():
-        trigger_command = to_watch_from_config.get(dev_id, {}).get('trigger_command', None) or general_trigger_command
+        trigger_command = to_watch_from_config.get(dev_id, {}).get('trigger_command', None) or generic_trigger_command
+        trigger_cooldown = to_watch_from_config.get(dev_id, {}).get('trigger_cooldown', None) or \
+                           generic_trigger_cooldown
 
-        watch_entry = {'threshold': None, 'power': None, 'trigger_command': trigger_command}
+        # Make sure data types are right
+        try:
+            trigger_cooldown = int(trigger_cooldown)
+        except ValueError:
+            trigger_cooldown = 0
+
+        watch_entry = {'threshold': None,
+                       'power': None,
+                       'trigger_command': trigger_command,
+                       'trigger_cooldown': trigger_cooldown}
         watch_entry['threshold'] = (to_watch_from_args.get(dev_id, {}).get('threshold', None) or
                                     to_watch_from_config.get(dev_id, {}).get('threshold', None))
         watch_entry['power'] = (to_watch_from_args.get(dev_id, {}).get('power', None) or
                                 to_watch_from_config.get(dev_id, {}).get('power', None))
 
         if not watch_entry['threshold'] and not watch_entry['power']:
-            if threshold and not power:
-                watch_entry['threshold'] = threshold
-            elif power:
-                watch_entry['power'] = power
+            if generic_threshold and not generic_power:
+                watch_entry['threshold'] = generic_threshold
+            elif generic_power:
+                watch_entry['power'] = generic_power
             else:
                 watch_entry['threshold'] = 1
 
@@ -191,6 +209,7 @@ def build_config(args):
             generic_threshold_from_config = config_from_file.pop('threshold', None)
             generic_power_from_config = config_from_file.pop('power', None)
             generic_trigger_command_from_config = config_from_file.pop('trigger_command', None)
+            generic_trigger_cooldown_from_config = config_from_file.pop('trigger_cooldown', None)
 
             config.update(config_from_file)
             print('Loaded configuration from {}'.format(args.config))
@@ -210,7 +229,7 @@ def build_config(args):
     config.update(config_from_args)
 
     # Remove intermediary config items from config
-    for interim_config in {'threshold', 'power', 'trigger_command'}:
+    for interim_config in {'threshold', 'power', 'trigger_command', 'trigger_cooldown'}:
         config.pop(interim_config, None)
 
     # Only allow track or map mode at once
@@ -222,6 +241,7 @@ def build_config(args):
     generic_threshold = args.threshold or generic_threshold_from_config
     generic_power = args.power or generic_power_from_config
     generic_trigger_command = args.trigger_command or generic_trigger_command_from_config
+    generic_trigger_cooldown = args.trigger_cooldown or generic_trigger_cooldown_from_config
 
     # If we're in track mode and no other threshold info is set, default to a 1 byte data threshold
     if config['do_track']:
@@ -232,13 +252,15 @@ def build_config(args):
                                                           devices_from_config,
                                                           generic_threshold,
                                                           generic_power,
-                                                          generic_trigger_command)
+                                                          generic_trigger_command,
+                                                          generic_trigger_cooldown)
 
         config['aps_to_watch'] = determine_watch_list(args.aps_to_watch,
                                                       aps_from_config,
                                                       generic_threshold,
                                                       generic_power,
-                                                      generic_trigger_command)
+                                                      generic_trigger_command,
+                                                      generic_trigger_cooldown)
 
     if args.channels_to_monitor:
         channels_to_monitor = args.channels_to_monitor.split(',')

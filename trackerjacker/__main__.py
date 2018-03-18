@@ -117,7 +117,6 @@ class TrackerJacker:
                                                             devices_to_watch,
                                                             aps_to_watch,
                                                             threshold_window,
-                                                            trigger_cooldown,
                                                             eval_interval,
                                                             self.dot11_map)
 

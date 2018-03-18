@@ -24,7 +24,6 @@ class Dot11Tracker:
             (example usage: to cause an alert when a device is within a certain physical distance).
         aps_to_watch: List of access points in this format - {"ssid1": threshold1, "bssid2": threshold2}
         threshold_window: Time window in which the threshold must be reached to cause an alert
-        trigger_cooldown: Mininum number of seconds which must pass between alerts
         eval_interval: Interval between evaluating triggers
         dot11_map: Reference to dott11_mapper.Do11Map object, where the traffic info is stored
     """
@@ -33,7 +32,6 @@ class Dot11Tracker:
                  devices_to_watch,
                  aps_to_watch,
                  threshold_window,
-                 trigger_cooldown,
                  eval_interval,
                  dot11_map):
 
@@ -75,10 +73,6 @@ class Dot11Tracker:
         Args:
             alert_msg: Message to log for the alert
         """
-        if time.time() - self.last_alerted.get(dev_id, 9999999) < self.trigger_cooldown:
-            return
-        self.logger.info(alert_msg)
-
         if dev_type == 'ssid':
             dev_index = self.ssids_to_watch
         elif dev_type == 'bssid':
@@ -87,6 +81,12 @@ class Dot11Tracker:
             dev_index = self.devices_to_watch
 
         trigger_command = dev_index.get(dev_id, {}).get('trigger_command', None)
+        trigger_cooldown = dev_index.get(dev_id, {}).get('trigger_cooldown', 30)
+
+        if time.time() - self.last_alerted.get(dev_id, 9999999) < trigger_cooldown:
+            return
+        self.logger.info(alert_msg)
+
         if trigger_command:
             # Start trigger_command in background process - fire and forget
             print(chr(0x07))  # beep
@@ -113,8 +113,8 @@ class Dot11Tracker:
                         self.do_alert(mac, 'device', 'Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
                         continue
 
-            self.logger.info('Bytes received for {} (threshold: {}) in last {} seconds: {}'
-                             .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
+            self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
+                              .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
 
     def eval_bssid_triggers(self):
         for bssid in self.bssids_to_watch:

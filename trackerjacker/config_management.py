@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # pylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915, C0413
 
+import copy
 import json
 import argparse
 
@@ -138,7 +139,39 @@ def determine_watch_list(to_watch_from_args,
                          generic_trigger_command,
                          generic_trigger_cooldown):
     """ Coalesces the to_watch list from the command-line arguments, the config file,
-    and the the general threshold, power, and trigger command.
+    and the the general threshold, power, and trigger command. The main idea here is to look
+    for the config values set on a per-device basis, and prioritize those, but if they are not there,
+    fall back to the "generic_*" version. And if those have not been specified, fall back to defaults.
+
+    Example input:
+        to_watch_from_args = 'aa:bb:cc:dd:ee:ff=1337, 11:22:33:44:55:66=100, ff:ee:dd:cc:bb:aa',
+        to_watch_from_config = {}
+        generic_threshold = 1337
+        generic_power = None
+        generic_trigger_commmand = './alert.sh'
+        gneric_trigger_cooldown = 60
+
+    Returns a dict in this format:
+        {
+            'aa:bb:cc:dd:ee:ff': {
+                'threshold': None,
+                'power': -40,
+                'trigger_command': './alert.sh',
+                'trigger_cooldown': 60
+            },
+            '11:22:33:44:55:66': {
+                'threshold': 100,
+                'power': None,
+                'trigger_command': './alert.sh',
+                'trigger_cooldown': 60
+            },
+            'ff:ee:dd:cc:bb:aa': {
+                'threshold': 1337,
+                'power': None,
+                'trigger_command': './alert.sh',
+                'trigger_cooldown': 60
+            }
+        }
     """
 
     # Converts from cli param format like: "aa:bb:cc:dd:ee:ff=-40,11:22:33:44:55:66=100' to a map like:
@@ -156,12 +189,12 @@ def determine_watch_list(to_watch_from_args,
     for dev_id in to_watch_from_args.keys() | to_watch_from_config.keys():
         trigger_command = to_watch_from_config.get(dev_id, {}).get('trigger_command', None) or generic_trigger_command
         trigger_cooldown = to_watch_from_config.get(dev_id, {}).get('trigger_cooldown', None) or \
-                           generic_trigger_cooldown
+                           generic_trigger_cooldown or DEFAULT_CONFIG['trigger_cooldown']
 
         # Make sure data types are right
         try:
             trigger_cooldown = int(trigger_cooldown)
-        except ValueError:
+        except (TypeError, ValueError):
             trigger_cooldown = 0
 
         watch_entry = {'threshold': None,
@@ -187,12 +220,13 @@ def determine_watch_list(to_watch_from_args,
 
 
 def build_config(args):
-    config = DEFAULT_CONFIG
+    config = copy.deepcopy(DEFAULT_CONFIG)
     devices_from_config = {}
     aps_from_config = {}
     generic_threshold_from_config = None
     generic_power_from_config = None
     generic_trigger_command_from_config = None
+    generic_trigger_cooldown_from_config = None
 
     if args.config:
         try:

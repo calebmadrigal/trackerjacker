@@ -47,7 +47,6 @@ def make_logger(log_path=None, log_level_str='INFO'):
 
 
 class TrackerJacker:
-    # pylint: disable=R0902
     def __init__(self,
                  logger=None,
                  iface=None,
@@ -66,9 +65,7 @@ class TrackerJacker:
                  aps_to_watch=(),
                  threshold_window=10,  # seconds
                  eval_interval=5,  # seconds between looking for devices being tracked
-                 threshold_is_power=False,
-                 alert_cooldown=30,
-                 alert_command=None):
+                 trigger_cooldown=30):
 
         self.do_map = do_map
         self.do_track = do_track
@@ -76,7 +73,6 @@ class TrackerJacker:
         self.map_save_interval = map_save_interval
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
-        self.threshold_is_power = threshold_is_power
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
 
         if logger:
@@ -117,9 +113,12 @@ class TrackerJacker:
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
         if self.do_track:
-            self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger, devices_to_watch, aps_to_watch,
-                                                            threshold_window, alert_cooldown,
-                                                            alert_command, eval_interval, self.threshold_is_power,
+            self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger,
+                                                            devices_to_watch,
+                                                            aps_to_watch,
+                                                            threshold_window,
+                                                            trigger_cooldown,
+                                                            eval_interval,
                                                             self.dot11_map)
 
     def process_packet(self, pkt):

@@ -12,123 +12,20 @@ DEFAULT_CONFIG = {'log_path': None,
                   'iface': None,
                   'devices_to_watch': [],
                   'aps_to_watch': [],
+                  'threshold': None,
+                  'power': None,
                   'threshold_window': 10,
                   'do_map': True,
                   'do_track': False,
                   'map_file': 'wifi_map.yaml',
                   'map_save_interval': 10,
-                  'alert_cooldown': 30,
-                  'alert_command': None,
+                  'trigger_command': None,
+                  'trigger_cooldown': 30,
                   'channels_to_monitor': None,
                   'channel_switch_scheme': 'round_robin',
                   'time_per_channel': 2,
                   'display_matching_packets': False,
                   'display_all_packets': False}
-
-
-def build_config(args):
-    config = DEFAULT_CONFIG
-
-    macs_from_config = []
-    aps_from_config = []
-
-    if args.config:
-        try:
-            with open(args.config, 'r') as f:
-                config_from_file = json.loads(f.read())
-
-            # If there are any keys defined in the config file not allowed, error out
-            invalid_keys = set(config_from_file.keys()) - set(config.keys())
-            if invalid_keys:
-                raise TJException('Invalid keys found in config file: {}'.format(invalid_keys))
-
-            macs_from_config = config_from_file.pop('devices_to_watch', {})
-            aps_from_config = config_from_file.pop('aps_to_watch', {})
-
-            config.update(config_from_file)
-            print('Loaded configuration from {}'.format(args.config))
-
-        except (IOError, OSError, json.decoder.JSONDecodeError) as e:
-            raise TJException('Error loading config file ({}): {}'.format(args.config, e))
-
-    macs_from_args = {}
-    aps_from_args = {}
-
-    # Converts from cli param format like: "aa:bb:cc:dd:ee:ff,11:22:33:44:55:66' to a map like
-    #   {'aa:bb:cc:dd:ee:ff': 1, '11:22:33:44:55:66': 1}
-    if args.devices_to_watch:
-        macs_from_args = parse_watch_list(args.devices_to_watch)
-
-    # Converts from cli param format like "my_ssid1=5000,bssid2=1337" to a map like:
-    #   {'my_ssid1': 5000, 'bssid2': 1337}
-    if args.aps_to_watch:
-        aps_from_args = parse_watch_list(args.aps_to_watch)
-
-    non_config_args = ['config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
-                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup']
-
-    config_from_args = vars(args)
-    config_from_args = {k: v for k, v in config_from_args.items()
-                        if v is not None and k not in non_config_args}
-
-    # Config from args trumps everything
-    config.update(config_from_args)
-
-    # Only allow track or map mode at once
-    if config['do_track']:
-        config['do_map'] = False
-    if not config['do_track']:
-        config['do_map'] = True
-
-    config['devices_to_watch'] = dict(macs_from_config, **macs_from_args)
-    config['aps_to_watch'] = dict(aps_from_config, **aps_from_args)
-
-    if args.channels_to_monitor:
-        channels_to_monitor = args.channels_to_monitor.split(',')
-        config['channels_to_monitor'] = channels_to_monitor
-
-    return config
-
-
-def parse_watch_list(watch_str):
-    """ Parse string to represent devices to watch config
-
-    Valid examples:
-        * aa:bb:cc:dd:ee:ff
-            - Threshold of 1 for the given MAC address
-        * aa:bb:cc:dd:ee:ff,11:22:33:44:55:66
-            - This means look for any traffic from either address
-        * aa:bb:cc:dd:ee:ff=1337, 11:22:33:44:55:66=1000
-            - This means look for 1337 bytes for the first address, and 1000 for the second
-        * my_ssid, 11:22:33:44:55:66=1000
-            - This means look for 1 byte from my_ssid or 1000 for the second
-
-    Returns dict in this format:
-        {'aa:bb:cc:dd:ee:ff': threshold1, '11:22:33:44:55:66': threshold2}
-    """
-
-    watch_list = [i.strip() for i in watch_str.split(',')]
-    watch_dict = {}
-
-    for watch_part in watch_list:
-        if '=' in watch_part:
-            # dev_id is a MAC, BSSID, or SSID
-            dev_id, threshold = [i.strip() for i in watch_part.split('=')]
-            try:
-                threshold = int(threshold)
-            except ValueError:
-                # Can't parse with "dev_id=threshold" formula, so assume '=' sign was part of ssid
-                dev_id = watch_part
-                threshold = 1
-
-            watch_part.split('=')
-        else:
-            # Can't parse with "dev_id=threshold" formula, so assume...
-            dev_id = watch_part
-            threshold = 1
-
-        watch_dict[dev_id] = threshold
-    return watch_dict
 
 
 def get_arg_parser():
@@ -165,9 +62,11 @@ def get_arg_parser():
                         help='Number of seconds between saving the wifi map to disk')
     parser.add_argument('--eval_interval', type=float, dest='eval_interval',
                         help='Number of seconds between looking for tracked devices')
-    parser.add_argument('--power', action='store_true', dest='threshold_is_power',
-                        help='If specified, all tracking thresholds are taken to represent RSSI power levels')
-    parser.add_argument('--alert-command', type=str, dest='alert_command',
+    parser.add_argument('--threshold', type=int, dest='threshold',
+                        help='Default data threshold (unless overridden on a per-dev basis) for triggering')
+    parser.add_argument('--power', type=int, dest='power',
+                        help='Default power threshold (unless overridden on a per-dev basis) for triggering')
+    parser.add_argument('--trigger-command', type=str, dest='trigger_command',
                         help='Command to execute upon alert')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
                         help='If true, displays all packets matching filters')
@@ -179,5 +78,170 @@ def get_arg_parser():
                         help='Log level; Options: DEBUG, INFO, WARNING, ERROR, CRITICAL')
     parser.add_argument('-c', '--config', type=str, dest='config',
                         help='Path to config json file; For example config file, use --print-default-config')
-
     return parser
+
+
+def parse_command_line_watch_list(watch_str):
+    """ Parse string to represent devices to watch config
+
+    Valid examples:
+        * aa:bb:cc:dd:ee:ff
+            - Threshold of 1 for the given MAC address
+        * aa:bb:cc:dd:ee:ff,11:22:33:44:55:66
+            - This means look for any traffic from either address
+        * aa:bb:cc:dd:ee:ff=1337, 11:22:33:44:55:66=1000
+            - This means look for 1337 bytes for the first address, and 1000 for the second
+        * my_ssid, 11:22:33:44:55:66=1000
+            - This means look for 1 byte from my_ssid or 1000 for the second
+        * 11:22:33:44:55:66=-30
+            - This means trigger if 11:22:33:44:55:66 is seen at a power level >= -30dBm (negative value implies power)
+
+    Returns dict in this format:
+        {'aa:bb:cc:dd:ee:ff': {'threshold': 100, 'power': None},
+         '11:22:33:44:55:66': {'threshold': None, 'power': -30}}
+    """
+
+    watch_list = [i.strip() for i in watch_str.split(',')]
+    watch_dict = {}
+
+    for watch_part in watch_list:
+        power = None
+        threshold = None
+
+        if '=' in watch_part:
+            # dev_id is a MAC, BSSID, or SSID
+            dev_id, val = [i.strip() for i in watch_part.split('=')]
+            try:
+                val = int(val)
+            except ValueError:
+                # Can't parse with "dev_id=threshold" formula, so assume '=' sign was part of ssid
+                dev_id = watch_part
+
+            if val > 0:
+                threshold = val
+            else:
+                power = val
+        else:
+            dev_id = watch_part
+
+        watch_dict[dev_id] = {'threshold': threshold, 'power': power}
+
+    return watch_dict
+
+
+def determine_watch_list(to_watch_from_args, to_watch_from_config, threshold, power, general_trigger_command):
+    """ Coalesces the to_watch list from the command-line arguments, the config file,
+    and the the general threshold, power, and trigger command.
+    """
+
+    # Converts from cli param format like: "aa:bb:cc:dd:ee:ff=-40,11:22:33:44:55:66=100' to a map like:
+    #   {'aa:bb:cc:dd:ee:ff': {'threshold': None, 'power': -40},
+    #    '11:22:33:44:55:66': {'threshold': 100, 'power': None}
+    if to_watch_from_args:
+        to_watch_from_args = parse_command_line_watch_list(to_watch_from_args)
+
+    if not to_watch_from_args:
+        to_watch_from_args = {}
+    if not to_watch_from_config:
+        to_watch_from_config = {}
+
+    watch_config_dict = {}
+    for dev_id in to_watch_from_args.keys() | to_watch_from_config.keys():
+        trigger_command = to_watch_from_config.get(dev_id, {}).get('trigger_command', None) or general_trigger_command
+
+        watch_entry = {'threshold': None, 'power': None, 'trigger_command': trigger_command}
+        watch_entry['threshold'] = (to_watch_from_args.get(dev_id, {}).get('threshold', None) or
+                                    to_watch_from_config.get(dev_id, {}).get('threshold', None))
+        watch_entry['power'] = (to_watch_from_args.get(dev_id, {}).get('power', None) or
+                                to_watch_from_config.get(dev_id, {}).get('power', None))
+
+        if not watch_entry['threshold'] and not watch_entry['power']:
+            if threshold and not power:
+                watch_entry['threshold'] = threshold
+            elif power:
+                watch_entry['power'] = power
+            else:
+                watch_entry['threshold'] = 1
+
+        watch_config_dict[dev_id] = watch_entry
+
+    return watch_config_dict
+
+
+def build_config(args):
+    config = DEFAULT_CONFIG
+    devices_from_config = {}
+    aps_from_config = {}
+    generic_threshold_from_config = None
+    generic_power_from_config = None
+    generic_trigger_command_from_config = None
+
+    if args.config:
+        try:
+            with open(args.config, 'r') as f:
+                config_from_file = json.loads(f.read())
+
+            # If there are any keys defined in the config file not allowed, error out
+            invalid_keys = set(config_from_file.keys()) - set(config.keys())
+            if invalid_keys:
+                raise TJException('Invalid keys found in config file: {}'.format(invalid_keys))
+
+            devices_from_config = config_from_file.pop('devices_to_watch', {})
+            aps_from_config = config_from_file.pop('aps_to_watch', {})
+            generic_threshold_from_config = config_from_file.pop('threshold', None)
+            generic_power_from_config = config_from_file.pop('power', None)
+            generic_trigger_command_from_config = config_from_file.pop('trigger_command', None)
+
+            config.update(config_from_file)
+            print('Loaded configuration from {}'.format(args.config))
+
+        except (IOError, OSError, json.decoder.JSONDecodeError) as e:
+            raise TJException('Error loading config file ({}): {}'.format(args.config, e))
+
+    non_config_args = {'config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
+                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup',
+                       'threshold', 'power', 'trigger_command'}
+
+    config_from_args = vars(args)
+    config_from_args = {k: v for k, v in config_from_args.items()
+                        if v is not None and k not in non_config_args}
+
+    # Config from args trumps everything
+    config.update(config_from_args)
+
+    # Remove intermediary config items from config
+    for interim_config in {'threshold', 'power', 'trigger_command'}:
+        config.pop(interim_config, None)
+
+    # Only allow track or map mode at once
+    if config['do_track']:
+        config['do_map'] = False
+    if not config['do_track']:
+        config['do_map'] = True
+
+    generic_threshold = args.threshold or generic_threshold_from_config
+    generic_power = args.power or generic_power_from_config
+    generic_trigger_command = args.trigger_command or generic_trigger_command_from_config
+
+    # If we're in track mode and no other threshold info is set, default to a 1 byte data threshold
+    if config['do_track']:
+        if not generic_threshold and not generic_power:
+            generic_threshold = 1
+
+        config['devices_to_watch'] = determine_watch_list(args.devices_to_watch,
+                                                          devices_from_config,
+                                                          generic_threshold,
+                                                          generic_power,
+                                                          generic_trigger_command)
+
+        config['aps_to_watch'] = determine_watch_list(args.aps_to_watch,
+                                                      aps_from_config,
+                                                      generic_threshold,
+                                                      generic_power,
+                                                      generic_trigger_command)
+
+    if args.channels_to_monitor:
+        channels_to_monitor = args.channels_to_monitor.split(',')
+        config['channels_to_monitor'] = channels_to_monitor
+
+    return config

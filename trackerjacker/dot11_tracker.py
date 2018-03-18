@@ -24,10 +24,8 @@ class Dot11Tracker:
             (example usage: to cause an alert when a device is within a certain physical distance).
         aps_to_watch: List of access points in this format - {"ssid1": threshold1, "bssid2": threshold2}
         threshold_window: Time window in which the threshold must be reached to cause an alert
-        alert_cooldown: Mininum number of seconds which must pass between alerts
-        alert_command: A command to run on each alert
+        trigger_cooldown: Mininum number of seconds which must pass between alerts
         eval_interval: Interval between evaluating triggers
-        threshold_is_power: threshold in devices_to_watch and aps_to_watch represents power thresholds
         dot11_map: Reference to dott11_mapper.Do11Map object, where the traffic info is stored
     """
     def __init__(self,
@@ -35,53 +33,27 @@ class Dot11Tracker:
                  devices_to_watch,
                  aps_to_watch,
                  threshold_window,
-                 alert_cooldown,
-                 alert_command,
+                 trigger_cooldown,
                  eval_interval,
-                 threshold_is_power,
                  dot11_map):
 
         self.stop_event = threading.Event()
+        self.last_alerted = {}
 
         # Same as self.arg = arg for every arg (except devices_to_watch and aps_to_watch)
-        self.__dict__.update({k: v for k, v in locals().items() if k not in {'devices_to_watch', 'aps_to_watch'}})
-
-        # Creates a map like: {'aa:bb:cc:dd:ee:ff': {'threshold': 4000, 'power': -30, 'last_alert': timestamp}, ...}
-        self.devices_to_watch = {}
-        for mac, threshold in devices_to_watch.items():
-            mac = mac.lower()
-
-            if threshold_is_power:
-                threshold = 0
-                power = threshold
-            else:
-                power = 0
-
-            self.devices_to_watch[mac] = {'threshold': threshold,
-                                          'power': power,
-                                          'last_alert': 0}
+        self.__dict__.update({k: v for k, v in locals().items() if k != 'aps_to_watch'})
 
         # Creates a map like: {'my_ssid1': {'threshold': 5000, 'last_alert': timestamp}, 'bssid2': {...} }
         self.bssids_to_watch = {}
         self.ssids_to_watch = {}
-        for ap_identifier, threshold in aps_to_watch.items():
-            if threshold_is_power:
-                threshold = 0
-                power = threshold
-            else:
-                power = 0
-
-            ap_watch_node = {'threshold': threshold,
-                             'power': power,
-                             'last_alert': 0}
-
+        for ap_identifier, watch_entry in aps_to_watch.items():
             # Try to determine if the ap_identifier is a bssid or ssid based on pattern, and behave accordingly
             # Note that this means ssids that are named like a bssid will be treated like a bssid instead of an
             # essid, but that's a trade off in terms of simplicity of use I'm willing to make right now.
             if re.match(r'^([a-fA-F0-9]{2}[:|\-]?){6}$', ap_identifier):
-                self.bssids_to_watch[ap_identifier.lower()] = ap_watch_node
+                self.bssids_to_watch[ap_identifier.lower()] = watch_entry
             else:
-                self.ssids_to_watch[ap_identifier] = ap_watch_node
+                self.ssids_to_watch[ap_identifier] = watch_entry
 
     def get_bytes_in_window(self, frame_list):
         """ Returns number of bytes in a frame_list.
@@ -97,17 +69,30 @@ class Dot11Tracker:
             bytes_in_window += num_bytes
         return bytes_in_window
 
-    def do_alert(self, alert_msg):
+    def do_alert(self, dev_id, dev_type, alert_msg):
         """ Do alert for triggered item.
 
         Args:
             alert_msg: Message to log for the alert
         """
+        if time.time() - self.last_alerted.get(dev_id, 9999999) < self.trigger_cooldown:
+            return
         self.logger.info(alert_msg)
-        if self.alert_command:
-            # Start alert_command in background process - fire and forget
+
+        if dev_type == 'ssid':
+            dev_index = self.ssids_to_watch
+        elif dev_type == 'bssid':
+            dev_index = self.bssids_to_watch
+        else:
+            dev_index = self.devices_to_watch
+
+        trigger_command = dev_index.get(dev_id, {}).get('trigger_command', None)
+        if trigger_command:
+            # Start trigger_command in background process - fire and forget
             print(chr(0x07))  # beep
-            subprocess.Popen(self.alert_command)
+            subprocess.Popen(trigger_command)
+
+        self.last_alerted[dev_id] = time.time()
 
     def eval_device_triggers(self):
         for mac in self.devices_to_watch:
@@ -117,14 +102,15 @@ class Dot11Tracker:
 
             if dev_node:
                 if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
-                    self.do_alert(mac)
+                    self.do_alert(mac, 'device', 'Device ({}) power threshold ({}) hit: {}'
+                                  .format(mac, dev_watch_node['power'], dev_node['signal']))
                     continue
                 elif dev_watch_node['threshold']:
                     # Calculate bytes received in the alert_window
                     bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
                                        self.get_bytes_in_window(dev_node['frames_out']))
                     if bytes_in_window >= dev_watch_node['threshold']:
-                        self.do_alert('Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
+                        self.do_alert(mac, 'device', 'Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
                         continue
 
             self.logger.info('Bytes received for {} (threshold: {}) in last {} seconds: {}'
@@ -139,7 +125,7 @@ class Dot11Tracker:
             if bssid_node:
                 bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
                 if bytes_in_window >= bssid_watch_node['threshold']:
-                    self.do_alert('Access Point ({}) threshold hit: {}'.format(bssid, bytes_in_window))
+                    self.do_alert(bssid, 'bssid', 'Access Point ({}) threshold hit: {}'.format(bssid, bytes_in_window))
                     continue
 
             self.logger.info('Bytes received for {} in last {} seconds: {}'
@@ -156,7 +142,7 @@ class Dot11Tracker:
                                          [bssid_node['frames'] for bssid_node in bssid_nodes],
                                          0)
                 if bytes_in_window >= ssid_watch_node['threshold']:
-                    self.do_alert('Access Point ({}) threshold hit: {}'.format(ssid, bytes_in_window))
+                    self.do_alert(ssid, 'ssid', 'Access Point ({}) threshold hit: {}'.format(ssid, bytes_in_window))
                     continue
 
             self.logger.info('Bytes received for {} in last {} seconds: {}'
@@ -190,8 +176,8 @@ class Dot11Tracker_old:
                  aps_to_watch,
                  threshold_bytes,
                  threshold_window,
-                 alert_cooldown,
-                 alert_command):
+                 trigger_cooldown,
+                 trigger_command):
 
         self.stop_event = threading.Event()
 
@@ -243,13 +229,13 @@ class Dot11Tracker_old:
         return self.threshold_bytes
 
     def do_alert(self):
-        if self.alert_command:
-            # Start alert_command in background process - fire and forget
+        if self.trigger_command:
+            # Start trigger_command in background process - fire and forget
             print(chr(0x07))  # beep
-            subprocess.Popen(self.alert_command)
+            subprocess.Popen(self.trigger_command)
 
     def mac_of_interest_detected(self, mac):
-        if time.time() - self.last_alerted.get(mac, 9999999) < self.alert_cooldown:
+        if time.time() - self.last_alerted.get(mac, 9999999) < self.trigger_cooldown:
             return
 
         device_name = ' ({})'.format(self.devices_to_watch[mac]['name']) if 'name' in self.devices_to_watch[mac] else ''

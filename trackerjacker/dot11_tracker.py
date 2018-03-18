@@ -84,6 +84,7 @@ class Dot11Tracker:
         trigger_cooldown = dev_index.get(dev_id, {}).get('trigger_cooldown', 30)
 
         if time.time() - self.last_alerted.get(dev_id, 9999999) < trigger_cooldown:
+            self.logger.debug('[*] Saw {}, but still in cooldown period ({} seconds)'.format(dev_id, trigger_cooldown))
             return
         self.logger.info(alert_msg)
 

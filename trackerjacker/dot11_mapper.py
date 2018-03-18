@@ -153,13 +153,14 @@ class Dot11Map:
             else:
                 self.ssid_to_access_point[missing_ssid_name] = {bssid}
 
-        ap_node['channels'] |= {frame.channel}
-
         if frame.signal_strength:
             ap_node['signal'] = frame.signal_strength
 
+        # Only associate with channels and devices for data packets since, for example, APs
+        # send beacons on channels that they don't actually communicate on.
         if frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA:
             ap_node['devices'] |= (frame.macs - MACS_TO_IGNORE - {bssid})
+            ap_node['channels'] |= {frame.channel}
 
         ap_node['frames'].append((time.time(), frame.frame_bytes))
 

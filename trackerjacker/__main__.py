@@ -64,8 +64,7 @@ class TrackerJacker:
                  devices_to_watch=(),
                  aps_to_watch=(),
                  threshold_window=10,  # seconds
-                 eval_interval=5,  # seconds between looking for devices being tracked
-                 trigger_cooldown=30):
+                 eval_interval=1):  # seconds between looking for devices being tracked
 
         self.do_map = do_map
         self.do_track = do_track
@@ -100,7 +99,7 @@ class TrackerJacker:
         if channel_switch_scheme == 'default':
             if self.do_map:
                 channel_switch_scheme = 'round_robin'
-            else:
+            else:  # track mode
                 channel_switch_scheme = 'traffic_based'
 
         self.iface_manager = device_management.Dot11InterfaceManager(iface,

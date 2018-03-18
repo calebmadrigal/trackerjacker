@@ -22,8 +22,9 @@ DEFAULT_CONFIG = {'log_path': None,
                   'map_save_interval': 10,
                   'trigger_command': None,
                   'trigger_cooldown': 30,
+                  'eval_interval': 1,  # seconds
                   'channels_to_monitor': None,
-                  'channel_switch_scheme': 'round_robin',
+                  'channel_switch_scheme': 'default',
                   'time_per_channel': 2,
                   'display_matching_packets': False,
                   'display_all_packets': False}

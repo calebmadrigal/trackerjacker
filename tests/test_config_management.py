@@ -47,6 +47,11 @@ class TestConfigManagement(unittest.TestCase):
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': 100, 'aa:bb:cc:dd:ee:ff': 1})
 
+    def test_config_ap_to_watch(self):
+        cmd_line_args = cm.get_arg_parser().parse_args(['--track', '-a', '7C:70:BC:78:70:21=100,my_network'])
+        config = cm.build_config(cmd_line_args)
+        self.assertEqual(config['aps_to_watch'], {'7C:70:BC:78:70:21': 100, 'my_network': 1})
+
 
 if __name__ == '__main__':
     unittest.main()

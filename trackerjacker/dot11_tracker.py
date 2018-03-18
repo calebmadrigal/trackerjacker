@@ -3,8 +3,6 @@
 
 import re
 import time
-import datetime
-import itertools
 import threading
 import subprocess
 from functools import reduce
@@ -110,7 +108,6 @@ class Dot11Tracker:
                     # Calculate bytes received in the alert_window
                     bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
                                        self.get_bytes_in_window(dev_node['frames_out']))
-                    #print('dev_node= {}'.format(dev_node))
                     if bytes_in_window >= dev_watch_node['threshold']:
                         self.do_alert(mac, 'device', '[@] Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
                         continue
@@ -127,7 +124,8 @@ class Dot11Tracker:
             if bssid_node:
                 bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
                 if bytes_in_window >= bssid_watch_node['threshold']:
-                    self.do_alert(bssid, 'bssid', '[@] Access Point ({}) threshold hit: {}'.format(bssid, bytes_in_window))
+                    self.do_alert(bssid, 'bssid', '[@] Access Point ({}) threshold hit: {}'
+                                  .format(bssid, bytes_in_window))
                     continue
 
             self.logger.info('Bytes received for {} in last {} seconds: {}'

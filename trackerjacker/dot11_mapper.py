@@ -15,7 +15,9 @@ from . import ieee_mac_vendor_db  # pylint: disable=E0401
 MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
 
 
-def trim_frames_to_window(frames, window, now=time.time()):
+def trim_frames_to_window(frames, window, now=None):
+    if not now:
+        now = time.time()
     oldest_time_in_window = now - window
     oldest_in_window = -1  # Assume everything is in the window
     for index, frame in enumerate(frames):
@@ -35,7 +37,7 @@ class Dot11Map:
 
         # Used for determining when to trim frame lists
         self.frame_count_by_device = collections.Counter()
-        self.trim_every_num_frames = 100
+        self.trim_every_num_frames = 50  # empirically-derived
         self.window = 10  # seconds
 
         # Needed for efficiently determining if there is no ssid known for a given bssid

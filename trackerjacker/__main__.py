@@ -63,8 +63,7 @@ class TrackerJacker:
                  do_track=False,
                  devices_to_watch=(),
                  aps_to_watch=(),
-                 threshold_window=10,  # seconds
-                 eval_interval=1):  # seconds between looking for devices being tracked
+                 threshold_window=10):  # seconds
 
         self.do_map = do_map
         self.do_track = do_track
@@ -116,7 +115,6 @@ class TrackerJacker:
                                                             devices_to_watch,
                                                             aps_to_watch,
                                                             threshold_window,
-                                                            eval_interval,
                                                             self.dot11_map)
 
     def process_packet(self, pkt):
@@ -149,6 +147,9 @@ class TrackerJacker:
                     self.dot11_map.save_to_file(self.map_file)
                     self.map_last_save = time.time()
 
+            if self.do_track:
+                self.dot11_tracker.add_frame(frame)
+
     def log_newly_found(self, frame):
         # Log newly-found things
         if frame.ssid and frame.bssid not in self.dot11_map.access_points.keys():
@@ -163,12 +164,7 @@ class TrackerJacker:
 
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)
-
         self.iface_manager.start()
-
-        if self.do_track:
-            self.dot11_tracker.start_tracking()
-
         scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
 
     def stop(self):
@@ -177,9 +173,6 @@ class TrackerJacker:
         if self.do_map:
             # Flush map to disk
             self.dot11_map.save_to_file(self.map_file)
-
-        if self.do_track:
-            self.dot11_tracker.stop()
 
 
 def do_simple_tasks_if_specified(args):

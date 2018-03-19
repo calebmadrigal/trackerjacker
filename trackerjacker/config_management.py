@@ -22,7 +22,6 @@ DEFAULT_CONFIG = {'log_path': None,
                   'map_save_interval': 10,
                   'trigger_command': None,
                   'trigger_cooldown': 30,
-                  'eval_interval': 1,  # seconds
                   'channels_to_monitor': None,
                   'channel_switch_scheme': 'default',
                   'time_per_channel': 2,
@@ -62,8 +61,6 @@ def get_arg_parser():
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--map-save-interval', type=float, dest='map_save_interval',
                         help='Number of seconds between saving the wifi map to disk')
-    parser.add_argument('--eval_interval', type=float, dest='eval_interval',
-                        help='Number of seconds between looking for tracked devices')
     parser.add_argument('--threshold', type=int, dest='threshold',
                         help='Default data threshold (unless overridden on a per-dev basis) for triggering')
     parser.add_argument('--power', type=int, dest='power',

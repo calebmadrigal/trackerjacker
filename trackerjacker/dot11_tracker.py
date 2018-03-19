@@ -22,7 +22,6 @@ class Dot11Tracker:
             (example usage: to cause an alert when a device is within a certain physical distance).
         aps_to_watch: List of access points in this format - {"ssid1": threshold1, "bssid2": threshold2}
         threshold_window: Time window in which the threshold must be reached to cause an alert
-        eval_interval: Interval between evaluating triggers
         dot11_map: Reference to dott11_mapper.Do11Map object, where the traffic info is stored
     """
     def __init__(self,
@@ -30,7 +29,6 @@ class Dot11Tracker:
                  devices_to_watch,
                  aps_to_watch,
                  threshold_window,
-                 eval_interval,
                  dot11_map):
 
         self.stop_event = threading.Event()
@@ -50,6 +48,11 @@ class Dot11Tracker:
                 self.bssids_to_watch[ap_identifier.lower()] = watch_entry
             else:
                 self.ssids_to_watch[ap_identifier] = watch_entry
+
+    def add_frame(self, frame):
+        self.eval_device_triggers()
+        self.eval_ssid_triggers()
+        self.eval_bssid_triggers()
 
     def get_bytes_in_window(self, frame_list):
         """ Returns number of bytes in a frame_list.
@@ -147,21 +150,3 @@ class Dot11Tracker:
 
             self.logger.info('Bytes received for {} in last {} seconds: {}'
                              .format(ssid, self.threshold_window, bytes_in_window))
-
-    def start_tracking(self, firethread=True):
-        if firethread:
-            t = threading.Thread(target=self.start_tracking, args=(False,))
-            t.daemon = True
-            t.start()
-            return t
-
-        while not self.stop_event.is_set():
-            self.eval_device_triggers()
-            self.eval_ssid_triggers()
-            self.eval_bssid_triggers()
-
-            # Make this configurable
-            time.sleep(self.eval_interval)
-
-    def stop(self):
-        self.stop_event.set()

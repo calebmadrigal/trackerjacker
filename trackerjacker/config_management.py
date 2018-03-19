@@ -30,7 +30,7 @@ DEFAULT_CONFIG = {'log_path': None,
 
 
 def get_arg_parser():
-    """ Returns the configured argparse object. """
+    """Returns the configured argparse object."""
     parser = argparse.ArgumentParser()
     # Modes
     parser.add_argument('--map', action='store_true', dest='do_map',
@@ -83,7 +83,7 @@ def get_arg_parser():
 
 
 def parse_command_line_watch_list(watch_str):
-    """ Parse string to represent devices to watch config
+    """Parse string that represents devices to watch.
 
     Valid examples:
         * aa:bb:cc:dd:ee:ff
@@ -136,7 +136,9 @@ def determine_watch_list(to_watch_from_args,
                          generic_power,
                          generic_trigger_command,
                          generic_trigger_cooldown):
-    """ Coalesces the to_watch list from the command-line arguments, the config file,
+    """Builds the list of devices to watch.
+    
+    Coalesces the to_watch list from the command-line arguments, the config file,
     and the the general threshold, power, and trigger command. The main idea here is to look
     for the config values set on a per-device basis, and prioritize those, but if they are not there,
     fall back to the "generic_*" version. And if those have not been specified, fall back to defaults.
@@ -218,6 +220,7 @@ def determine_watch_list(to_watch_from_args,
 
 
 def build_config(args):
+    """Builds the config from the command-line args, config file, and defaults."""
     config = copy.deepcopy(DEFAULT_CONFIG)
     devices_from_config = {}
     aps_from_config = {}

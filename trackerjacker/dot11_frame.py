@@ -1,4 +1,4 @@
-""" Provides nice interface for Dot11 Frames """
+"""Provides nice interface for Dot11 Frames"""
 
 # pylint: disable=R0902
 
@@ -12,7 +12,7 @@ except ModuleNotFoundError:
 
 
 class Dot11Frame:
-    """ Takes a scapy Dot11 frame and turns it into a format we want. """
+    """Takes a scapy Dot11 frame and turns it into a format we want."""
     TO_DS = 0x1
     FROM_DS = 0x2
     DOT11_FRAME_TYPE_MANAGEMENT = 0
@@ -60,11 +60,11 @@ class Dot11Frame:
             self.signal_strength = frame[scapy.RadioTap].dbm_antsignal
 
     def frame_type(self):
-        """ Returns the 802.11 frame type. """
+        """Returns the 802.11 frame type."""
         return self.frame.type
 
     def frame_type_name(self):
-        """ Returns the type of frame - 'management', 'control', 'data', or 'unknown'. """
+        """Returns the type of frame - 'management', 'control', 'data', or 'unknown'."""
         if self.frame.type == self.DOT11_FRAME_TYPE_MANAGEMENT:
             return 'management'
         elif self.frame.type == self.DOT11_FRAME_TYPE_CONTROL:

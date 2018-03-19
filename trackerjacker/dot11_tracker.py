@@ -11,7 +11,7 @@ from functools import reduce
 class Dot11Tracker:
     # self.__dict__.update(locals()) breaks pylint for member variables, so disable those warnings...
     # pylint: disable=E1101, W0613
-    """ Responsible for tracking access points and devices of interest.
+    """Responsible for tracking access points and devices of interest.
 
     Args:
         logger: A person who chops down our forest friends for a living
@@ -55,7 +55,7 @@ class Dot11Tracker:
         self.eval_bssid_triggers()
 
     def get_bytes_in_window(self, frame_list):
-        """ Returns number of bytes in a frame_list.
+        """Returns number of bytes in a frame_list.
 
         Args:
             frame_list: List in format - [(ts1, num_bytes1), (ts2, num_bytes2)]
@@ -69,7 +69,7 @@ class Dot11Tracker:
         return bytes_in_window
 
     def do_alert(self, dev_id, dev_type, alert_msg):
-        """ Do alert for triggered item.
+        """Do alert for triggered item.
 
         Args:
             alert_msg: Message to log for the alert

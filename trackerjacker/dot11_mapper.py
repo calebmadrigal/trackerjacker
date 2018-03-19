@@ -28,9 +28,7 @@ def trim_frames_to_window(frames, window, now=None):
 
 
 class Dot11Map:
-    """
-    Represents the observed state of the 802.11 radio space.
-    """
+    """Represents the observed state of the 802.11 radio space."""
 
     def __init__(self, map_data=None):
         self.lock = threading.RLock()
@@ -83,7 +81,7 @@ class Dot11Map:
             # TODO: Make sure beacons add 1 to frame counts (so that if looking for a threshold of 1 bytes they show up)
 
     def get_dev_node(self, mac):
-        """ Returns ap_node associated with mac in a thread-safe manner. """
+        """Returns ap_node associated with mac in a thread-safe manner."""
         device_node = None
         with self.lock:
             if mac in self.devices:
@@ -91,7 +89,7 @@ class Dot11Map:
         return device_node
 
     def get_ap_by_bssid(self, bssid):
-        """ Returns ap_node associated with mac in a thread-safe manner. """
+        """Returns ap_node associated with mac in a thread-safe manner."""
         ap_node = None
         with self.lock:
             if bssid in self.access_points:
@@ -198,8 +196,7 @@ class Dot11Map:
             dev_node['frames_in'] = trim_frames_to_window(dev_node['frames_in'], self.window)
 
     def save_to_file(self, file_path):
-        """
-        Serializes to file_path in a YAML format something like this:
+        """Serializes to file_path in a YAML format something like this:
 
         example_ssid_name:
             80:29:94:14:8a:1d:
@@ -252,7 +249,7 @@ class Dot11Map:
 
     @staticmethod
     def _with_frames_summed(dev_node):
-        """ Helper function to aid in serialization. """
+        """Helper function to aid in serialization."""
         dev_node = copy.deepcopy(dev_node)
         frames_in = sum([num_bytes for _, num_bytes in dev_node.pop('frames_in', ())])
         frames_out = sum([num_bytes for _, num_bytes in dev_node.pop('frames_out', ())])
@@ -261,9 +258,7 @@ class Dot11Map:
 
     @staticmethod
     def load_from_file(file_path):
-        """
-        Factory function to load a Dot11Map from file_path provided.
-        """
+        """Factory function to load a Dot11Map from file_path provided."""
         with open(file_path, 'r') as f:
             yaml_data = f.read()
 

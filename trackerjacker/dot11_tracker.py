@@ -9,8 +9,6 @@ from functools import reduce
 
 
 class Dot11Tracker:
-    # self.__dict__.update(locals()) breaks pylint for member variables, so disable those warnings...
-    # pylint: disable=E1101, W0613
     """Responsible for tracking access points and devices of interest.
 
     Args:
@@ -24,6 +22,7 @@ class Dot11Tracker:
         threshold_window: Time window in which the threshold must be reached to cause an alert
         dot11_map: Reference to dott11_mapper.Do11Map object, where the traffic info is stored
     """
+    # pylint: disable=E1101, W0613
     def __init__(self,
                  logger,
                  devices_to_watch,
@@ -50,23 +49,70 @@ class Dot11Tracker:
                 self.ssids_to_watch[ap_identifier] = watch_entry
 
     def add_frame(self, frame):
-        self.eval_device_triggers()
-        self.eval_ssid_triggers()
-        self.eval_bssid_triggers()
+        self.eval_device_triggers(frame.macs)
+        self.eval_bssid_triggers(frame.bssid)
+        self.eval_ssid_triggers(frame.ssid)
 
-    def get_bytes_in_window(self, frame_list):
-        """Returns number of bytes in a frame_list.
+    def eval_device_triggers(self, macs):
+        # Only eval macs both on the "to watch" list and in the frame
+        devices_to_eval = macs & self.devices_to_watch.keys()
+        for mac in devices_to_eval:
+            dev_watch_node = self.devices_to_watch[mac]
+            dev_node = self.dot11_map.get_dev_node(mac)
+            bytes_in_window = 0
 
-        Args:
-            frame_list: List in format - [(ts1, num_bytes1), (ts2, num_bytes2)]
-        """
+            if dev_node:
+                if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
+                    self.do_alert(mac, 'device', '[@] Device ({}) power threshold ({}) hit: {}'
+                                  .format(mac, dev_watch_node['power'], dev_node['signal']))
+                    continue
+                elif dev_watch_node['threshold']:
+                    # Calculate bytes received in the alert_window
+                    bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
+                                       self.get_bytes_in_window(dev_node['frames_out']))
+                    if bytes_in_window >= dev_watch_node['threshold']:
+                        self.do_alert(mac, 'device', '[@] Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
+                        continue
+
+            self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
+                              .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
+
+    def eval_bssid_triggers(self, bssid):
+        if bssid not in self.bssids_to_watch:
+            return
+
+        bssid_watch_node = self.bssids_to_watch[bssid]
+        bssid_node = self.dot11_map.get_ap_by_bssid(bssid)
         bytes_in_window = 0
-        now = time.time()
-        for ts, num_bytes in frame_list:
-            if (now - ts) > self.threshold_window:
-                break
-            bytes_in_window += num_bytes
-        return bytes_in_window
+
+        if bssid_node:
+            bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
+            if bytes_in_window >= bssid_watch_node['threshold']:
+                self.do_alert(bssid, 'bssid', '[@] Access Point ({}) threshold hit: {}'
+                              .format(bssid, bytes_in_window))
+                return
+
+        self.logger.info('Bytes received for {} in last {} seconds: {}'
+                         .format(bssid, self.threshold_window, bytes_in_window))
+
+    def eval_ssid_triggers(self, ssid):
+        if ssid not in self.ssids_to_watch:
+            return
+
+        ssid_watch_node = self.ssids_to_watch[ssid]
+        bssid_nodes = self.dot11_map.get_ap_nodes_by_ssid(ssid)
+        bytes_in_window = 0
+
+        if bssid_nodes:
+            bytes_in_window = reduce(lambda acc, bssid_bytes: acc+bssid_bytes,
+                                     [bssid_node['frames'] for bssid_node in bssid_nodes],
+                                     0)
+            if bytes_in_window >= ssid_watch_node['threshold']:
+                self.do_alert(ssid, 'ssid', '[@] Access Point ({}) threshold hit: {}'.format(ssid, bytes_in_window))
+                return
+
+        self.logger.info('Bytes received for {} in last {} seconds: {}'
+                         .format(ssid, self.threshold_window, bytes_in_window))
 
     def do_alert(self, dev_id, dev_type, alert_msg):
         """Do alert for triggered item.
@@ -96,57 +142,16 @@ class Dot11Tracker:
 
         self.last_alerted[dev_id] = time.time()
 
-    def eval_device_triggers(self):
-        for mac in self.devices_to_watch:
-            dev_watch_node = self.devices_to_watch[mac]
-            dev_node = self.dot11_map.get_dev_node(mac)
-            bytes_in_window = 0
+    def get_bytes_in_window(self, frame_list):
+        """Returns number of bytes in a frame_list.
 
-            if dev_node:
-                if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
-                    self.do_alert(mac, 'device', '[@] Device ({}) power threshold ({}) hit: {}'
-                                  .format(mac, dev_watch_node['power'], dev_node['signal']))
-                    continue
-                elif dev_watch_node['threshold']:
-                    # Calculate bytes received in the alert_window
-                    bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
-                                       self.get_bytes_in_window(dev_node['frames_out']))
-                    if bytes_in_window >= dev_watch_node['threshold']:
-                        self.do_alert(mac, 'device', '[@] Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
-                        continue
-
-            self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
-                              .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
-
-    def eval_bssid_triggers(self):
-        for bssid in self.bssids_to_watch:
-            bssid_watch_node = self.bssids_to_watch[bssid]
-            bssid_node = self.dot11_map.get_ap_by_bssid(bssid)
-            bytes_in_window = 0
-
-            if bssid_node:
-                bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
-                if bytes_in_window >= bssid_watch_node['threshold']:
-                    self.do_alert(bssid, 'bssid', '[@] Access Point ({}) threshold hit: {}'
-                                  .format(bssid, bytes_in_window))
-                    continue
-
-            self.logger.info('Bytes received for {} in last {} seconds: {}'
-                             .format(bssid, self.threshold_window, bytes_in_window))
-
-    def eval_ssid_triggers(self):
-        for ssid in self.ssids_to_watch:
-            ssid_watch_node = self.ssids_to_watch[ssid]
-            bssid_nodes = self.dot11_map.get_ap_nodes_by_ssid(ssid)
-            bytes_in_window = 0
-
-            if bssid_nodes:
-                bytes_in_window = reduce(lambda acc, bssid_bytes: acc+bssid_bytes,
-                                         [bssid_node['frames'] for bssid_node in bssid_nodes],
-                                         0)
-                if bytes_in_window >= ssid_watch_node['threshold']:
-                    self.do_alert(ssid, 'ssid', '[@] Access Point ({}) threshold hit: {}'.format(ssid, bytes_in_window))
-                    continue
-
-            self.logger.info('Bytes received for {} in last {} seconds: {}'
-                             .format(ssid, self.threshold_window, bytes_in_window))
+        Args:
+            frame_list: List in format - [(ts1, num_bytes1), (ts2, num_bytes2)]
+        """
+        bytes_in_window = 0
+        now = time.time()
+        for ts, num_bytes in frame_list:
+            if (now - ts) > self.threshold_window:
+                break
+            bytes_in_window += num_bytes
+        return bytes_in_window

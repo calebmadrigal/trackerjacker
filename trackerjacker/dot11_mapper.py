@@ -78,6 +78,12 @@ class Dot11Map:
             for mac in frame.macs - {frame.bssid}:
                 self.update_device(mac, frame)
 
+            # Enrich the frame by adding the ssid if not already there and if we know it
+            if not frame.ssid and frame.bssid in self.access_points:
+                ssid = self.access_points[frame.bssid].get('ssid', None)
+                if ssid:
+                    frame.ssid = ssid
+
             # TODO: Make sure beacons add 1 to frame counts (so that if looking for a threshold of 1 bytes they show up)
 
     def get_dev_node(self, mac):

@@ -166,20 +166,21 @@ Note that, since this is YAML, you can easily use it as an input for other scrip
 
 ### Track mode example
 
-Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `-t 450000` (specifying an alert threshold of 450000 bytes) an alert will be triggered. Thresholds can also be set on a per-device basis by using a config file (see the `-c` option).
+Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `-t 4000` (specifying an alert threshold of 4000 bytes) an alert will be triggered.
 
-    $ trackerjacker -i wlan0mon --track -m 7C:70:BC:78:70:21 -t 450000 
-    --alert-command "/root/trigger_alarm.sh" --channels-to-monitor 11
-    Channels available on wlan0mon: 
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64, 100, 102, 104,
-		108, 110, 112]
-    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 0
-    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 599
-    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 647
-    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 0
-    Bytes received in last 10 seconds for 7C:70:BC:78:70:21: 541386
-    2017-03-27 22:22:19.155201: Detected 7C:70:BC:78:70:21
-		Congratulations! You've fired the alarm_triggered event
+    trackerjacker --track -m 3c:2e:ff:25:30:61 --t 4000 --trigger-command "./alert.sh" --channels-to-monitor 10,11,12,44
+    Using monitor mode interface: wlan1337
+    Monitoring channels: {10, 11, 12, 44}
+
+    [@] Device (3c:2e:ff:25:30:61) threshold hit: 4734
+
+    [@] Device (3c:2e:ff:25:30:61) threshold hit: 7717
+
+    [@] Device (3c:2e:ff:25:30:61) threshold hit: 7124
+
+    [@] Device (3c:2e:ff:25:30:61) threshold hit: 8258
+
+    [@] Device (3c:2e:ff:25:30:61) threshold hit: 8922
 
 In this particular example, I was watching a security camera to determine when it was uploading a video (indicating motion was detected) so that I could turn on my security system sirens (which was the original genesis of this project).
 

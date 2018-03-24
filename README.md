@@ -8,6 +8,7 @@ PyPI page: https://pypi.python.org/pypi/trackerjacker
 
     pip3 install trackerjacker
 
+**Linux-only** at this time (tested on Ubuntu, Kali, and RPi).
 
 ![visual description](https://i.imgur.com/I5NH5KM.jpg)
 

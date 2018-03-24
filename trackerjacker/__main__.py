@@ -67,7 +67,8 @@ class TrackerJacker:
                  threshold_window=10,
                  trigger_plugin=None,
                  trigger_command=None,
-                 trigger_cooldown=30):  # seconds
+                 trigger_cooldown=30,
+                 beep_on_trigger=False):  # seconds
 
         self.do_map = do_map
         self.do_track = do_track
@@ -128,6 +129,7 @@ class TrackerJacker:
                                                             trigger_command,
                                                             trigger_cooldown,
                                                             threshold_window,
+                                                            beep_on_trigger,
                                                             self.dot11_map)
 
     def process_packet(self, pkt):

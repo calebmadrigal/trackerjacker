@@ -35,6 +35,7 @@ class Dot11Tracker:
                  trigger_command,
                  trigger_cooldown,
                  threshold_window,
+                 beep_on_trigger,
                  dot11_map):
 
         self.stop_event = threading.Event()
@@ -136,6 +137,9 @@ class Dot11Tracker:
             alert_msg = '[@] Device ({} {}) seen at power: {}'.format(dev_type, dev_id, power)
         self.logger.info(alert_msg)
 
+        if self.beep_on_trigger:
+            print(chr(0x07))
+
         if self.trigger_plugin:
             try:
                 self.trigger_plugin['trigger'](dev_id=dev_id, dev_type=dev_type, num_bytes=num_bytes, power=power)
@@ -144,7 +148,6 @@ class Dot11Tracker:
 
         if self.trigger_command:
             # Start trigger_command in background process - fire and forget
-            print(chr(0x07))  # beep
             subprocess.Popen(self.trigger_command)
 
         self.last_alerted[dev_id] = time.time()

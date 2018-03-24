@@ -26,7 +26,8 @@ DEFAULT_CONFIG = {'log_path': None,
                   'channel_switch_scheme': 'default',
                   'time_per_channel': 2,
                   'display_matching_packets': False,
-                  'display_all_packets': False}
+                  'display_all_packets': False,
+                  'beep_on_trigger': False}
 
 
 def get_arg_parser():
@@ -73,6 +74,8 @@ def get_arg_parser():
                         help='Time in seconds between trigger executions for a particular device')
     parser.add_argument('--display-all-packets', action='store_true', dest='display_all_packets',
                         help='If true, displays all packets matching filters')
+    parser.add_argument('--beep-on-trigger', action='store_true', dest='beep_on_trigger',
+                        help='If enabled, beep each time a trigger hits (off by default)')
     parser.add_argument('--map-file', type=str, dest='map_file', default='wifi_map.yaml',
                         help='File path to which to output wifi map; default: wifi_map.yaml')
     parser.add_argument('--log-path', type=str, dest='log_path', default=None,

@@ -6,6 +6,7 @@ import time
 import threading
 import subprocess
 from functools import reduce
+from .common import TJException
 
 
 class Dot11Tracker:
@@ -19,6 +20,9 @@ class Dot11Tracker:
             and where power is the minumum RSSI power level which will cause an alert when seen for that mac
             (example usage: to cause an alert when a device is within a certain physical distance).
         aps_to_watch: List of access points in this format - {"ssid1": threshold1, "bssid2": threshold2}
+        trigger_plugin: parsed trigger plugin - a dict in the form {'trigger': trigger function, 'api_version': 1}
+        trigger_command: string representing command to run on each trigger match
+        trigger_cooldown: seconds between calling the trigger_plugin or trigger_command for a particular device id
         threshold_window: Time window in which the threshold must be reached to cause an alert
         dot11_map: Reference to dott11_mapper.Do11Map object, where the traffic info is stored
     """
@@ -27,6 +31,9 @@ class Dot11Tracker:
                  logger,
                  devices_to_watch,
                  aps_to_watch,
+                 trigger_plugin,
+                 trigger_command,
+                 trigger_cooldown,
                  threshold_window,
                  dot11_map):
 
@@ -63,15 +70,14 @@ class Dot11Tracker:
 
             if dev_node:
                 if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
-                    self.do_alert(mac, 'device', '[@] Device ({}) power threshold ({}) hit: {}'
-                                  .format(mac, dev_watch_node['power'], dev_node['signal']))
+                    self.do_trigger_alert(mac, 'device', power=dev_node['signal'])
                     continue
                 elif dev_watch_node['threshold']:
                     # Calculate bytes received in the alert_window
                     bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
                                        self.get_bytes_in_window(dev_node['frames_out']))
                     if bytes_in_window >= dev_watch_node['threshold']:
-                        self.do_alert(mac, 'device', '[@] Device ({}) threshold hit: {}'.format(mac, bytes_in_window))
+                        self.do_trigger_alert(mac, 'device', num_bytes=bytes_in_window)
                         continue
 
             self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
@@ -88,8 +94,7 @@ class Dot11Tracker:
         if bssid_node:
             bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
             if bytes_in_window >= bssid_watch_node['threshold']:
-                self.do_alert(bssid, 'bssid', '[@] Access Point ({}) threshold hit: {}'
-                              .format(bssid, bytes_in_window))
+                self.do_trigger_alert(bssid, 'bssid', num_bytes=bytes_in_window)
                 return
 
         self.logger.info('Bytes received for {} in last {} seconds: {}'
@@ -108,37 +113,39 @@ class Dot11Tracker:
                                      [bssid_node['frames'] for bssid_node in bssid_nodes],
                                      0)
             if bytes_in_window >= ssid_watch_node['threshold']:
-                self.do_alert(ssid, 'ssid', '[@] Access Point ({}) threshold hit: {}'.format(ssid, bytes_in_window))
+                self.do_trigger_alert(ssid, 'ssid', num_bytes=bytes_in_window)
                 return
 
         self.logger.info('Bytes received for {} in last {} seconds: {}'
                          .format(ssid, self.threshold_window, bytes_in_window))
 
-    def do_alert(self, dev_id, dev_type, alert_msg):
+    def do_trigger_alert(self, dev_id, dev_type, num_bytes=None, power=None):
         """Do alert for triggered item.
 
         Args:
             alert_msg: Message to log for the alert
         """
-        if dev_type == 'ssid':
-            dev_index = self.ssids_to_watch
-        elif dev_type == 'bssid':
-            dev_index = self.bssids_to_watch
-        else:
-            dev_index = self.devices_to_watch
-
-        trigger_command = dev_index.get(dev_id, {}).get('trigger_command', None)
-        trigger_cooldown = dev_index.get(dev_id, {}).get('trigger_cooldown', 30)
-
-        if time.time() - self.last_alerted.get(dev_id, 9999999) < trigger_cooldown:
-            self.logger.debug('[*] Saw {}, but still in cooldown period ({} seconds)'.format(dev_id, trigger_cooldown))
+        if time.time() - self.last_alerted.get(dev_id, 9999999) < self.trigger_cooldown:
+            self.logger.debug('[*] Saw {}, but still in cooldown period ({} seconds)'
+                              .format(dev_id, self.trigger_cooldown))
             return
+
+        if num_bytes:
+            alert_msg = '[@] Device ({} {}) threshold hit: {} bytes'.format(dev_type, dev_id, num_bytes)
+        else:
+            alert_msg = '[@] Device ({} {}) seen at power: {}'.format(dev_type, dev_id, power)
         self.logger.info(alert_msg)
 
-        if trigger_command:
+        if self.trigger_plugin:
+            try:
+                self.trigger_plugin['trigger'](dev_id=dev_id, dev_type=dev_type, num_bytes=num_bytes, power=power)
+            except Exception as e:
+                raise TJException('Error occurred in trigger plugin: {}'.format(e))
+
+        if self.trigger_command:
             # Start trigger_command in background process - fire and forget
             print(chr(0x07))  # beep
-            subprocess.Popen(trigger_command)
+            subprocess.Popen(self.trigger_command)
 
         self.last_alerted[dev_id] = time.time()
 

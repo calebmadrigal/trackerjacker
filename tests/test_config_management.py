@@ -2,8 +2,6 @@
 import unittest
 import trackerjacker.config_management as cm
 
-DEFAULT_COOLDOWN = cm.DEFAULT_CONFIG['trigger_cooldown']
-
 
 class TestParseWatchList(unittest.TestCase):
     def test_list_basic(self):
@@ -48,43 +46,31 @@ class TestCommandLineBasics(unittest.TestCase):
         cmd_line_args = cm.get_arg_parser().parse_args(['--track', '-m', '7C:70:BC:78:70:21'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 1,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': None,}})
 
     def test_config_macs_to_watch_explicit_threshold(self):
         """ Test setting an explicit threshold. """
         cmd_line_args = cm.get_arg_parser().parse_args(['--track', '-m', '7C:70:BC:78:70:21=100'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 100,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': None}})
 
     def test_config_macs_to_watch_explicit_threshold_multiple(self):
         cmd_line_args = cm.get_arg_parser().parse_args(['--track', '-m', '7C:70:BC:78:70:21=100,aa:bb:cc:dd:ee:ff'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 100,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                            'power': None},
                                                       'aa:bb:cc:dd:ee:ff': {'threshold': 1,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': None}})
 
     def test_config_macs_to_watch_power_and_threshold(self):
         """ Test setting power and threshold. """
         cmd_line_args = cm.get_arg_parser().parse_args(['--track', '-m', '7C:70:BC:78:70:21=100,aa:bb:cc:dd:ee:ff=-50'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 100,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                            'power': None},
                                                       'aa:bb:cc:dd:ee:ff': {'threshold': None,
-                                                                            'power': -50,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': -50}})
 
     def test_config_macs_to_watch_general_threshold(self):
         """ Test that general threshold is used if no explicit specified. """
@@ -92,13 +78,9 @@ class TestCommandLineBasics(unittest.TestCase):
                                                         '--threshold', '1337'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 1337,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                            'power': None},
                                                       'aa:bb:cc:dd:ee:ff': {'threshold': 1337,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': None}})
 
 class TestCommandLineGeneralPower(unittest.TestCase):
     def test_config_macs_to_watch_power(self):
@@ -107,13 +89,9 @@ class TestCommandLineGeneralPower(unittest.TestCase):
                                                         '--power', '-42'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': None,
-                                                                            'power': -42,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                            'power': -42},
                                                       'aa:bb:cc:dd:ee:ff': {'threshold': None,
-                                                                            'power': -42,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': -42}})
 
 
 class TestCommandLinePower(unittest.TestCase):
@@ -123,13 +101,9 @@ class TestCommandLinePower(unittest.TestCase):
                                                         '--power', '-42'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 123,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                            'power': None},
                                                       'aa:bb:cc:dd:ee:ff': {'threshold': None,
-                                                                            'power': -42,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': -42}})
 
 class TestCommandLineExplicitPowerGeneralThreshold(unittest.TestCase):
     def test_config_macs_to_watch_mixed_override_reverse(self):
@@ -138,13 +112,9 @@ class TestCommandLineExplicitPowerGeneralThreshold(unittest.TestCase):
                                                         '--threshold', '1024'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['devices_to_watch'], {'7C:70:BC:78:70:21': {'threshold': None,
-                                                                            'power': -22,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                            'power': -22},
                                                       '11:bb:cc:dd:ee:ff': {'threshold': 1024,
-                                                                            'power': None,
-                                                                            'trigger_command': None,
-                                                                            'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                            'power': None}})
 
 
 class TestCommandLineApsToWatch(unittest.TestCase):
@@ -153,13 +123,9 @@ class TestCommandLineApsToWatch(unittest.TestCase):
         cmd_line_args = cm.get_arg_parser().parse_args(['--track', '-a', '7C:70:BC:78:70:21=100,my_network'])
         config = cm.build_config(cmd_line_args)
         self.assertEqual(config['aps_to_watch'], {'7C:70:BC:78:70:21': {'threshold': 100,
-                                                                        'power': None,
-                                                                        'trigger_command': None,
-                                                                        'trigger_cooldown': DEFAULT_COOLDOWN},
+                                                                        'power': None},
                                                   'my_network': {'threshold': 1,
-                                                                 'power': None,
-                                                                 'trigger_command': None,
-                                                                 'trigger_cooldown': DEFAULT_COOLDOWN}})
+                                                                 'power': None}})
 
 
 if __name__ == '__main__':

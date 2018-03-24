@@ -4,11 +4,10 @@ Like nmap for mapping wifi networks you're not connected to. Maps and tracks wif
 
 PyPI page: https://pypi.python.org/pypi/trackerjacker
 
-## Install
+#### Install
 
     pip3 install trackerjacker
 
-## Visual Description
 
 ![visual description](https://i.imgur.com/I5NH5KM.jpg)
 
@@ -164,7 +163,7 @@ By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all th
 
 Note that, since this is YAML, you can easily use it as an input for other scripts of your own devising.
 
-### Track mode example
+### Example: Track mode with trigger command
 
 Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `-t 4000` (specifying an alert threshold of 4000 bytes) an alert will be triggered.
 
@@ -184,26 +183,28 @@ Track mode allows you to specify some number of MAC addresses to watch, and if a
 
 In this particular example, I was watching a security camera to determine when it was uploading a video (indicating motion was detected) so that I could turn on my security system sirens (which was the original genesis of this project).
 
-## Example use-cases
+### Example: Track mode with trigger plugin
 
-* Map out all the nearby wifi devices (and which devices are asspciated with which Access Points)
-* Track when a particular MAC is seen
-* Track when a particular MAC sends some threshold of data in some time period
-* Track when traffic is happening on a particular Access Point
-* Find/track all connections on a particular Access Point
+    $ python3 -m trackerjacker --track -m 3c:2e:ff:25:30:61 --threshold 10 --trigger-plugin examples/plugin_example1.py --channels-to-monitor 10,11,12,44 --trigger-cooldown 1
 
-## Example usage
+		Using monitor mode interface: wlan1337
+    Monitoring channels: {10, 11, 12, 44}
+    [@] Device (device 3c:2e:ff:25:30:61) threshold hit: 34 bytes
+    3c:2e:ff:25:30:61 seen at: [1521926768.756529]
+    [@] Device (device 3c:2e:ff:25:30:61) threshold hit: 11880 bytes
+    3c:2e:ff:25:30:61 seen at: [1521926768.756529, 1521926769.758929]
+    [@] Device (device 3c:2e:ff:25:30:61) threshold hit: 18564 bytes
+    3c:2e:ff:25:30:61 seen at: [1521926768.756529, 1521926769.758929, 1521926770.7622838]
 
-### Example: configuring with command-line args
+This runs `examples/plugin_example1.py` every time `3c:2e:ff:25:30:61` is seen sending/receiving 10 bytes or more.
 
-    python3 trackerjacker.py -m 8a:23:ab:75:8e:2b --alert-command "date >> /tmp/test.txt"
+trackerjacker plugins are simply python files that contain either:
+* `Trigger` class which defines a `__call__(**kwargs)` method (example: `examples/plugin_example1.py`)
+* `trigger(**kwargs)` function (example: `examples/plugin_example2.py`)
 
-Notes:
+And optionally a `__apiversion__ = 1` line (for future backward compatibility)
 
-* This monitors for the MAC address: `8a:23:ab:75:8e:2b`
-* When detected, the current time is appended to `/tmp/test.txt`
-
-### Example: configuring with config file
+### Example: Configuring with config file
 
 	python3 trackerjacker.py -c my_config.json
 
@@ -250,6 +251,14 @@ Note that trackerjacker will automatically enable/disable monitor mode if necess
 
 Note that trackerjacker will automatically switch channels as necessary during normal map/track actions. This option is just useful if you want to set the channel on an interface for use with other applications.
 
+## Example use-cases
+
+* Map out all the nearby wifi devices (and which devices are asspciated with which Access Points)
+* Track when a particular MAC is seen
+* Track when a particular MAC sends some threshold of data in some time period
+* Track when traffic is happening on a particular Access Point
+* Find/track all connections on a particular Access Point
+
 ## Recommended hardware
 
 * Panda PAU07 N600 Dual Band (nice, small, 2.4GHz and 5GHz)
@@ -266,6 +275,7 @@ Note that trackerjacker will automatically switch channels as necessary during n
 - [x] Packet count by AP
 - [x] Packet count by MAC
 - [x] Easier way to input per-device tracking thresholds
+- [x] Plugin system
 - [ ] Tracking by SSID (and not just BSSID)
 - [ ] Mapping a specific SSID
 - [ ] Performance enhancement: not shelling out for channel switching

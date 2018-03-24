@@ -14,6 +14,7 @@ from . import device_management
 from . import dot11_frame
 from . import dot11_mapper
 from . import dot11_tracker
+from . import plugin_parser
 from . import ieee_mac_vendor_db
 from .common import TJException
 
@@ -63,7 +64,10 @@ class TrackerJacker:
                  do_track=False,
                  devices_to_watch=(),
                  aps_to_watch=(),
-                 threshold_window=10):  # seconds
+                 threshold_window=10,
+                 trigger_plugin=None,
+                 trigger_command=None,
+                 trigger_cooldown=30):  # seconds
 
         self.do_map = do_map
         self.do_track = do_track
@@ -111,9 +115,18 @@ class TrackerJacker:
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
         if self.do_track:
+            # Build trigger hit function
+            if trigger_plugin:
+                parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin)
+            else:
+                parsed_trigger_plugin = None
+
             self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger,
                                                             devices_to_watch,
                                                             aps_to_watch,
+                                                            parsed_trigger_plugin,
+                                                            trigger_command,
+                                                            trigger_cooldown,
                                                             threshold_window,
                                                             self.dot11_map)
 

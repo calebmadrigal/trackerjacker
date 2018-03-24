@@ -4,7 +4,6 @@
 import copy
 import json
 import argparse
-
 from .common import TJException
 
 # Default config
@@ -20,6 +19,7 @@ DEFAULT_CONFIG = {'log_path': None,
                   'do_track': False,
                   'map_file': 'wifi_map.yaml',
                   'map_save_interval': 10,
+                  'trigger_plugin': None,
                   'trigger_command': None,
                   'trigger_cooldown': 30,
                   'channels_to_monitor': None,
@@ -65,6 +65,8 @@ def get_arg_parser():
                         help='Default data threshold (unless overridden on a per-dev basis) for triggering')
     parser.add_argument('--power', type=int, dest='power',
                         help='Default power threshold (unless overridden on a per-dev basis) for triggering')
+    parser.add_argument('--trigger-plugin', type=str, dest='trigger_plugin',
+                        help='Python trigger plugin file path; for more information')
     parser.add_argument('--trigger-command', type=str, dest='trigger_command',
                         help='Command to execute upon alert')
     parser.add_argument('--trigger-cooldown', type=str, dest='trigger_cooldown',
@@ -133,11 +135,9 @@ def parse_command_line_watch_list(watch_str):
 def determine_watch_list(to_watch_from_args,
                          to_watch_from_config,
                          generic_threshold,
-                         generic_power,
-                         generic_trigger_command,
-                         generic_trigger_cooldown):
+                         generic_power):
     """Builds the list of devices to watch.
-    
+
     Coalesces the to_watch list from the command-line arguments, the config file,
     and the the general threshold, power, and trigger command. The main idea here is to look
     for the config values set on a per-device basis, and prioritize those, but if they are not there,
@@ -148,29 +148,12 @@ def determine_watch_list(to_watch_from_args,
         to_watch_from_config = {}
         generic_threshold = 1337
         generic_power = None
-        generic_trigger_commmand = './alert.sh'
-        gneric_trigger_cooldown = 60
 
     Returns a dict in this format:
         {
-            'aa:bb:cc:dd:ee:ff': {
-                'threshold': None,
-                'power': -40,
-                'trigger_command': './alert.sh',
-                'trigger_cooldown': 60
-            },
-            '11:22:33:44:55:66': {
-                'threshold': 100,
-                'power': None,
-                'trigger_command': './alert.sh',
-                'trigger_cooldown': 60
-            },
-            'ff:ee:dd:cc:bb:aa': {
-                'threshold': 1337,
-                'power': None,
-                'trigger_command': './alert.sh',
-                'trigger_cooldown': 60
-            }
+            'aa:bb:cc:dd:ee:ff': {'threshold': None, 'power': -40},
+            '11:22:33:44:55:66': {'threshold': 100, 'power': None},
+            'ff:ee:dd:cc:bb:aa': {'threshold': 1337, 'power': None}
         }
     """
 
@@ -187,20 +170,8 @@ def determine_watch_list(to_watch_from_args,
 
     watch_config_dict = {}
     for dev_id in to_watch_from_args.keys() | to_watch_from_config.keys():
-        trigger_command = to_watch_from_config.get(dev_id, {}).get('trigger_command', None) or generic_trigger_command
-        trigger_cooldown = to_watch_from_config.get(dev_id, {}).get('trigger_cooldown', None) or \
-                           generic_trigger_cooldown or DEFAULT_CONFIG['trigger_cooldown']
-
-        # Make sure data types are right
-        try:
-            trigger_cooldown = int(trigger_cooldown)
-        except (TypeError, ValueError):
-            trigger_cooldown = 0
-
         watch_entry = {'threshold': None,
-                       'power': None,
-                       'trigger_command': trigger_command,
-                       'trigger_cooldown': trigger_cooldown}
+                       'power': None}
         watch_entry['threshold'] = (to_watch_from_args.get(dev_id, {}).get('threshold', None) or
                                     to_watch_from_config.get(dev_id, {}).get('threshold', None))
         watch_entry['power'] = (to_watch_from_args.get(dev_id, {}).get('power', None) or
@@ -224,10 +195,6 @@ def build_config(args):
     config = copy.deepcopy(DEFAULT_CONFIG)
     devices_from_config = {}
     aps_from_config = {}
-    generic_threshold_from_config = None
-    generic_power_from_config = None
-    generic_trigger_command_from_config = None
-    generic_trigger_cooldown_from_config = None
 
     if args.config:
         try:
@@ -241,10 +208,6 @@ def build_config(args):
 
             devices_from_config = config_from_file.pop('devices_to_watch', {})
             aps_from_config = config_from_file.pop('aps_to_watch', {})
-            generic_threshold_from_config = config_from_file.pop('threshold', None)
-            generic_power_from_config = config_from_file.pop('power', None)
-            generic_trigger_command_from_config = config_from_file.pop('trigger_command', None)
-            generic_trigger_cooldown_from_config = config_from_file.pop('trigger_cooldown', None)
 
             config.update(config_from_file)
             print('Loaded configuration from {}'.format(args.config))
@@ -253,8 +216,7 @@ def build_config(args):
             raise TJException('Error loading config file ({}): {}'.format(args.config, e))
 
     non_config_args = {'config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
-                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup',
-                       'threshold', 'power', 'trigger_command'}
+                       'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup'}
 
     config_from_args = vars(args)
     config_from_args = {k: v for k, v in config_from_args.items()
@@ -263,9 +225,14 @@ def build_config(args):
     # Config from args trumps everything
     config.update(config_from_args)
 
-    # Remove intermediary config items from config
-    for interim_config in {'threshold', 'power', 'trigger_command', 'trigger_cooldown'}:
-        config.pop(interim_config, None)
+    # These are used to build the 'devices_to_watch' and 'aps_to_watch' below, but no longer needed after
+    threshold = config.pop('threshold')
+    power = config.pop('power')
+
+    try:
+        config['trigger_cooldown'] = float(config['trigger_cooldown'])
+    except ValueError:
+        raise TJException('trigger_cooldown must be a number')
 
     # Only allow track or map mode at once
     if config['do_track']:
@@ -273,29 +240,20 @@ def build_config(args):
     if not config['do_track']:
         config['do_map'] = True
 
-    generic_threshold = args.threshold or generic_threshold_from_config
-    generic_power = args.power or generic_power_from_config
-    generic_trigger_command = args.trigger_command or generic_trigger_command_from_config
-    generic_trigger_cooldown = args.trigger_cooldown or generic_trigger_cooldown_from_config
-
     # If we're in track mode and no other threshold info is set, default to a 1 byte data threshold
     if config['do_track']:
-        if not generic_threshold and not generic_power:
-            generic_threshold = 1
+        if not threshold and not power:
+            threshold = 1
 
         config['devices_to_watch'] = determine_watch_list(args.devices_to_watch,
                                                           devices_from_config,
-                                                          generic_threshold,
-                                                          generic_power,
-                                                          generic_trigger_command,
-                                                          generic_trigger_cooldown)
+                                                          threshold,
+                                                          power)
 
         config['aps_to_watch'] = determine_watch_list(args.aps_to_watch,
                                                       aps_from_config,
-                                                      generic_threshold,
-                                                      generic_power,
-                                                      generic_trigger_command,
-                                                      generic_trigger_cooldown)
+                                                      threshold,
+                                                      power)
 
     if args.channels_to_monitor:
         channels_to_monitor = args.channels_to_monitor.split(',')

@@ -62,6 +62,8 @@ class TrackerJacker:
                  map_save_interval=10,  # seconds
                  # track args
                  do_track=False,
+                 threshold=None,
+                 power=None,
                  devices_to_watch=(),
                  aps_to_watch=(),
                  threshold_window=10,
@@ -123,6 +125,8 @@ class TrackerJacker:
                 parsed_trigger_plugin = None
 
             self.dot11_tracker = dot11_tracker.Dot11Tracker(self.logger,
+                                                            threshold,
+                                                            power,
                                                             devices_to_watch,
                                                             aps_to_watch,
                                                             parsed_trigger_plugin,

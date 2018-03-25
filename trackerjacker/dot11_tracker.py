@@ -29,6 +29,8 @@ class Dot11Tracker:
     # pylint: disable=E1101, W0613
     def __init__(self,
                  logger,
+                 threshold,
+                 power,
                  devices_to_watch,
                  aps_to_watch,
                  trigger_plugin,
@@ -44,6 +46,9 @@ class Dot11Tracker:
         # Same as self.arg = arg for every arg (except devices_to_watch and aps_to_watch)
         self.__dict__.update({k: v for k, v in locals().items() if k != 'aps_to_watch'})
 
+        # If no particular things are specified to be watched, assume everything should be watched
+        self.track_all = (not aps_to_watch and not devices_to_watch)
+
         # Creates a map like: {'my_ssid1': {'threshold': 5000, 'last_alert': timestamp}, 'bssid2': {...} }
         self.bssids_to_watch = {}
         self.ssids_to_watch = {}
@@ -57,32 +62,78 @@ class Dot11Tracker:
                 self.ssids_to_watch[ap_identifier] = watch_entry
 
     def add_frame(self, frame):
-        self.eval_device_triggers(frame.macs)
-        self.eval_bssid_triggers(frame.bssid)
-        self.eval_ssid_triggers(frame.ssid)
+        if self.track_all:
+            self.eval_general_mac_trigger(frame.macs, frame)
+            self.eval_general_bssid_trigger(frame.bssid, frame)
+            self.eval_general_ssid_trigger(frame.ssid, frame)
+        else:
+            self.eval_mac_triggers(frame.macs)
+            self.eval_bssid_triggers(frame.bssid)
+            self.eval_ssid_triggers(frame.ssid)
 
-    def eval_device_triggers(self, macs):
+    def eval_general_mac_trigger(self, macs, frame):
+        for mac in macs:
+            dev_node = self.dot11_map.get_dev_node(mac)
+            if not dev_node:
+                continue
+
+            if self.threshold:
+                # Calculate bytes received in the alert_window
+                bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
+                                   self.get_bytes_in_window(dev_node['frames_out']))
+                if bytes_in_window >= self.threshold:
+                    self.do_trigger_alert(mac, 'mac', num_bytes=bytes_in_window)
+
+            if self.power and frame.signal_strength > self.power:
+                self.do_trigger_alert(mac, 'mac', power=dev_node['signal'])
+
+    def eval_general_bssid_trigger(self, bssid, frame):
+        bssid_node = self.dot11_map.get_ap_by_bssid(bssid)
+        if self.threshold:
+            bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
+            if bytes_in_window >= self.threshold:
+                self.do_trigger_alert(bssid, 'bssid', num_bytes=bytes_in_window)
+
+        if self.power and frame.signal_strength >= self.power:
+            self.do_trigger_alert(bssid, 'bssid', power=frame.signal_strength)
+
+    def eval_general_ssid_trigger(self, ssid, frame):
+        bssid_nodes = self.dot11_map.get_ap_nodes_by_ssid(ssid)
+        if bssid_nodes:
+            if self.threshold:
+                bytes_in_window = reduce(lambda acc, bssid_bytes: acc+bssid_bytes,
+                                         [bssid_node['frames'] for bssid_node in bssid_nodes],
+                                         0)
+                if bytes_in_window >= self.threshold:
+                    self.do_trigger_alert(ssid, 'ssid', num_bytes=bytes_in_window)
+
+            if self.power and frame.signal_strength >= self.power:
+                self.do_trigger_alert(ssid, 'bssid', power=frame.signal_strength)
+
+    def eval_mac_triggers(self, macs):
         # Only eval macs both on the "to watch" list and in the frame
         devices_to_eval = macs & self.devices_to_watch.keys()
         for mac in devices_to_eval:
             dev_watch_node = self.devices_to_watch[mac]
             dev_node = self.dot11_map.get_dev_node(mac)
             bytes_in_window = 0
+            triggered = False
 
             if dev_node:
-                if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
-                    self.do_trigger_alert(mac, 'device', power=dev_node['signal'])
-                    continue
-                elif dev_watch_node['threshold']:
+                if dev_watch_node['threshold']:
                     # Calculate bytes received in the alert_window
                     bytes_in_window = (self.get_bytes_in_window(dev_node['frames_in']) +
                                        self.get_bytes_in_window(dev_node['frames_out']))
                     if bytes_in_window >= dev_watch_node['threshold']:
-                        self.do_trigger_alert(mac, 'device', num_bytes=bytes_in_window)
-                        continue
+                        self.do_trigger_alert(mac, 'mac', num_bytes=bytes_in_window)
+                        triggered = True
+                if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
+                    self.do_trigger_alert(mac, 'mac', power=dev_node['signal'])
+                    triggered = True
 
-            self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
-                              .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
+            if not triggered:
+                self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
+                                  .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
 
     def eval_bssid_triggers(self, bssid):
         if bssid not in self.bssids_to_watch:
@@ -91,15 +142,21 @@ class Dot11Tracker:
         bssid_watch_node = self.bssids_to_watch[bssid]
         bssid_node = self.dot11_map.get_ap_by_bssid(bssid)
         bytes_in_window = 0
+        triggered = False
 
         if bssid_node:
-            bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
-            if bytes_in_window >= bssid_watch_node['threshold']:
-                self.do_trigger_alert(bssid, 'bssid', num_bytes=bytes_in_window)
-                return
+            if bssid_watch_node['power'] and bssid_node['signal'] >= bssid_watch_node['power']:
+                self.do_trigger_alert(bssid, 'bssid', power=bssid_node['signal'])
+                triggered = True
 
-        self.logger.info('Bytes received for {} in last {} seconds: {}'
-                         .format(bssid, self.threshold_window, bytes_in_window))
+            bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
+            if bssid_watch_node['threshold'] and bytes_in_window >= bssid_watch_node['threshold']:
+                self.do_trigger_alert(bssid, 'bssid', num_bytes=bytes_in_window)
+                triggered = True
+
+        if not triggered:
+            self.logger.info('Bytes received for {} in last {} seconds: {}'
+                             .format(bssid, self.threshold_window, bytes_in_window))
 
     def eval_ssid_triggers(self, ssid):
         if ssid not in self.ssids_to_watch:

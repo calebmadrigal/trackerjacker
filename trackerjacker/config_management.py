@@ -228,10 +228,6 @@ def build_config(args):
     # Config from args trumps everything
     config.update(config_from_args)
 
-    # These are used to build the 'devices_to_watch' and 'aps_to_watch' below, but no longer needed after
-    threshold = config.pop('threshold')
-    power = config.pop('power')
-
     try:
         config['trigger_cooldown'] = float(config['trigger_cooldown'])
     except ValueError:
@@ -245,18 +241,18 @@ def build_config(args):
 
     # If we're in track mode and no other threshold info is set, default to a 1 byte data threshold
     if config['do_track']:
-        if not threshold and not power:
-            threshold = 1
+        if not config['threshold'] and not config['power']:
+            config['threshold'] = 1
 
         config['devices_to_watch'] = determine_watch_list(args.devices_to_watch,
                                                           devices_from_config,
-                                                          threshold,
-                                                          power)
+                                                          config['threshold'],
+                                                          config['power'])
 
         config['aps_to_watch'] = determine_watch_list(args.aps_to_watch,
                                                       aps_from_config,
-                                                      threshold,
-                                                      power)
+                                                      config['threshold'],
+                                                      config['power'])
 
     if args.channels_to_monitor:
         channels_to_monitor = args.channels_to_monitor.split(',')

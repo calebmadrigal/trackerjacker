@@ -277,10 +277,10 @@ Note that trackerjacker will automatically switch channels as necessary during n
 - [x] Packet count by MAC
 - [x] Easier way to input per-device tracking thresholds
 - [x] Plugin system
-- [ ] Tracking by SSID (and not just BSSID)
+- [x] Fox hunt mode
+- [x] Tracking by SSID (and not just BSSID)
 - [ ] Mapping a specific SSID
 - [ ] Performance enhancement: not shelling out for channel switching
-- [ ] Fox hunt mode
 - [ ] "Jack" mode - deauth attacks
 - [ ] Mac (OS X) support
 

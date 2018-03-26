@@ -167,7 +167,7 @@ class TrackerJacker:
                     self.map_last_save = time.time()
 
             if self.do_track:
-                self.dot11_tracker.add_frame(frame)
+                self.dot11_tracker.add_frame(frame, pkt)
 
     def log_newly_found(self, frame):
         # Log newly-found things

@@ -28,7 +28,7 @@ Map command:
 
 By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all the nearby WiFi networks and all of their users. Here's an example `wifi_map.yaaml` file:
 	
-	BRCM_TEST_SSID:
+	TEST_SSID:
 	  00:10:18:6b:7a:ea:
 	    bssid: 00:10:18:6b:7a:ea
 	    bytes: 5430
@@ -44,7 +44,7 @@ By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all th
 	        signal: -52
 	        vendor: Apple, Inc.
 	    signal: -86
-	    ssid: BRCM_TEST_SSID
+	    ssid: TEST_SSID
 	    vendor: Broadcom
 	
 	BRANSONS_WIFI:
@@ -67,18 +67,7 @@ By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all th
 	        signal: 4
 	        vendor: SAMSUNG ELECTRO-MECHANICS(THAILAND)
 	    signal: -80
-	    ssid: EDWARDS23
-	    vendor: Hon Hai Precision Ind. Co.,Ltd.
-	
-	TimeWarner8930:
-	  44:1c:a8:cf:3c:e7:
-	    bssid: 44:1c:a8:cf:3c:e7
-	    bytes: 5265
-	    channels:
-	    - 6
-	    devices: {}
-	    signal: -84
-	    ssid: TimeWarner8930
+	    ssid: BRANSONS_WIFI
 	    vendor: Hon Hai Precision Ind. Co.,Ltd.
 	
 	hacker_network:
@@ -168,36 +157,36 @@ Note that, since this is YAML, you can easily use it as an input for other scrip
 
 Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `-t 4000` (specifying an alert threshold of 4000 bytes) an alert will be triggered.
 
-    trackerjacker --track -m 3c:2e:ff:25:30:61 --t 4000 --trigger-command "./alert.sh" --channels-to-monitor 10,11,12,44
+    trackerjacker --track -m 3c:2e:ff:31:32:59 --t 4000 --trigger-command "./alert.sh" --channels-to-monitor 10,11,12,44
     Using monitor mode interface: wlan1337
     Monitoring channels: {10, 11, 12, 44}
 
-    [@] Device (3c:2e:ff:25:30:61) threshold hit: 4734
+    [@] Device (3c:2e:ff:31:32:59) threshold hit: 4734
 
-    [@] Device (3c:2e:ff:25:30:61) threshold hit: 7717
+    [@] Device (3c:2e:ff:31:32:59) threshold hit: 7717
 
-    [@] Device (3c:2e:ff:25:30:61) threshold hit: 7124
+    [@] Device (3c:2e:ff:31:32:59) threshold hit: 7124
 
-    [@] Device (3c:2e:ff:25:30:61) threshold hit: 8258
+    [@] Device (3c:2e:ff:31:32:59) threshold hit: 8258
 
-    [@] Device (3c:2e:ff:25:30:61) threshold hit: 8922
+    [@] Device (3c:2e:ff:31:32:59) threshold hit: 8922
 
 In this particular example, I was watching a security camera to determine when it was uploading a video (indicating motion was detected) so that I could turn on my security system sirens (which was the original genesis of this project).
 
 ### Example: Track mode with trigger plugin
 
-    $ python3 -m trackerjacker --track -m 3c:2e:ff:25:30:61 --threshold 10 --trigger-plugin examples/plugin_example1.py --channels-to-monitor 10,11,12,44 --trigger-cooldown 1
+    $ trackerjacker --track -m 3c:2e:ff:31:32:59 --threshold 10 --trigger-plugin examples/plugin_example1.py --channels-to-monitor 10,11,12,44 --trigger-cooldown 1
 
 		Using monitor mode interface: wlan1337
     Monitoring channels: {10, 11, 12, 44}
-    [@] Device (device 3c:2e:ff:25:30:61) threshold hit: 34 bytes
-    3c:2e:ff:25:30:61 seen at: [1521926768.756529]
-    [@] Device (device 3c:2e:ff:25:30:61) threshold hit: 11880 bytes
-    3c:2e:ff:25:30:61 seen at: [1521926768.756529, 1521926769.758929]
-    [@] Device (device 3c:2e:ff:25:30:61) threshold hit: 18564 bytes
-    3c:2e:ff:25:30:61 seen at: [1521926768.756529, 1521926769.758929, 1521926770.7622838]
+    [@] Device (device 3c:2e:ff:31:32:59) threshold hit: 34 bytes
+    3c:2e:ff:31:32:59 seen at: [1521926768.756529]
+    [@] Device (device 3c:2e:ff:31:32:59) threshold hit: 11880 bytes
+    3c:2e:ff:31:32:59 seen at: [1521926768.756529, 1521926769.758929]
+    [@] Device (device 3c:2e:ff:31:32:59) threshold hit: 18564 bytes
+    3c:2e:ff:31:32:59 seen at: [1521926768.756529, 1521926769.758929, 1521926770.7622838]
 
-This runs `examples/plugin_example1.py` every time `3c:2e:ff:25:30:61` is seen sending/receiving 10 bytes or more.
+This runs `examples/plugin_example1.py` every time `3c:2e:ff:31:32:59` is seen sending/receiving 10 bytes or more.
 
 trackerjacker plugins are simply python files that contain either:
 * `Trigger` class which defines a `__call__(**kwargs)` method (example: `examples/plugin_example1.py`)
@@ -207,7 +196,7 @@ And optionally a `__apiversion__ = 1` line (for future backward compatibility)
 
 ### Example: Configuring with config file
 
-	python3 trackerjacker.py -c my_config.json
+	trackerjacker.py -c my_config.json
 
 And here's the example config file called `my_config.json`:
 
@@ -238,17 +227,17 @@ Trackerjacker comes with a few other utility functions relevant to WiFi hacking.
 
 Enable monitor mode:
 
-    python3 trackerjacker.py --monitor-mode-on -i wlan0
+    trackerjacker --monitor-mode-on -i wlan0
 
 Disable monitor mode:
 
-    python3 trackerjacker.py --monitor-mode-off -i wlan0mon
+    trackerjacker --monitor-mode-off -i wlan0mon
 
 Note that trackerjacker will automatically enable/disable monitor mode if necessary. This functionality is just useful if you want to enable monitor mode on an interface for use with other applications (or for quicker starup of trackerjacker, if you plan to be starting/exiting to test stuff).
 
 ### Example: Set adapter channel
 
-    python3 trackerjacker.py --set-channel 11 -i wlan0
+    trackerjacker --set-channel 11 -i wlan0
 
 Note that trackerjacker will automatically switch channels as necessary during normal map/track actions. This option is just useful if you want to set the channel on an interface for use with other applications.
 

@@ -16,6 +16,8 @@ for future compatibility.
 
 Note that this plugin system is not sandboxed, so if the code in trigger_path brakes something,
 the host program will break (unless it is explicitly handling any errors).
+
+Last, a trigger can override any config parameters with the __config__ param.
 """
 
 CURRENT_TRIGGER_API_VERSION = 1
@@ -29,6 +31,7 @@ def parse_trigger_plugin(trigger_path):
     exec(trigger_code, trigger_vars)
 
     api_version = trigger_vars.get('__apiversion__', CURRENT_TRIGGER_API_VERSION)
+    config = trigger_vars.get('__config__', {})
     trigger = trigger_vars.get('trigger', None)
     trigger_class = trigger_vars.get('Trigger', None)
 
@@ -40,4 +43,4 @@ def parse_trigger_plugin(trigger_path):
     if not trigger:
         raise Exception('Plugin file must specify a "trigger" function or a "Trigger" class')
 
-    return {'trigger': trigger, 'api_version': api_version}
+    return {'trigger': trigger, 'api_version': api_version, 'config': config}

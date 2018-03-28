@@ -25,6 +25,7 @@ except ModuleNotFoundError:
     logging.getLogger("scapy3k.runtime").setLevel(logging.ERROR)
     import scapy3k.all as scapy
 
+LOG_NAME_TO_LEVEL = {'DEBUG': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40, 'CRITICAL': 50}
 
 def make_logger(log_path=None, log_level_str='INFO'):
     logger = logging.getLogger('trackerjacker')
@@ -41,8 +42,7 @@ def make_logger(log_path=None, log_level_str='INFO'):
         log_handler = logging.StreamHandler(sys.stdout)
         log_handler.setFormatter(logging.Formatter('%(message)s'))
     logger.addHandler(log_handler)
-    log_name_to_level = {'DEBUG': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40, 'CRITICAL': 50}
-    log_level = log_name_to_level.get(log_level_str.upper(), 20)
+    log_level = LOG_NAME_TO_LEVEL.get(log_level_str.upper(), 20)
     logger.setLevel(log_level)
     return logger
 
@@ -108,19 +108,35 @@ class TrackerJacker:
             else:  # track mode
                 channel_switch_scheme = 'traffic_based'
 
-        self.iface_manager = device_management.Dot11InterfaceManager(iface,
-                                                                     self.logger,
-                                                                     channels_to_monitor,
-                                                                     channel_switch_scheme,
-                                                                     time_per_channel)
-
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
 
         if self.do_track:
             # Build trigger hit function
             if trigger_plugin:
+                # If trigger_plugin missing '.py' and doesn't contain '/', assume it's a built-in
+                # plugin (in trackerjacker/plugins)
+                if not trigger_plugin.lower().endswith('.py') and '/' not in trigger_plugin:
+                    possible_builtin_path = os.path.join(os.path.dirname(__file__),
+                                                         'plugins',
+                                                         '{}.py'.format(trigger_plugin))
+                    if os.path.exists(possible_builtin_path):
+                        trigger_plugin = possible_builtin_path
+
                 parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin)
+
+                # Allow plugin to override any config parameters
+                if 'config' in parsed_trigger_plugin:
+                    trigger_config = parsed_trigger_plugin['config']
+                    self.__dict__.update(trigger_config)
+                    # In case log level changes
+                    if 'log_level' in trigger_config:
+                        log_level = LOG_NAME_TO_LEVEL.get(trigger_config['log_level'].upper(), None)
+                        if log_level:
+                            self.logger.setLevel(log_level)
+                            for handler in self.logger.handlers:
+                                handler.setLevel(log_level)
+
             else:
                 parsed_trigger_plugin = None
 
@@ -135,6 +151,13 @@ class TrackerJacker:
                                                             threshold_window,
                                                             beep_on_trigger,
                                                             self.dot11_map)
+
+        self.iface_manager = device_management.Dot11InterfaceManager(iface,
+                                                                     self.logger,
+                                                                     channels_to_monitor,
+                                                                     channel_switch_scheme,
+                                                                     time_per_channel)
+
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):

@@ -173,6 +173,32 @@ Track mode allows you to specify some number of MAC addresses to watch, and if a
 
 In this particular example, I was watching a security camera to determine when it was uploading a video (indicating motion was detected) so that I could turn on my security system sirens (which was the original genesis of this project).
 
+### Example: Track mode with foxhunt plugin
+
+    trackerjacker -i wlan1337 --track --trigger-plugin foxhunt
+
+Displays a curses screen like this:
+
+      POWER        DEVICE ID                VENDOR
+    =======        =================        ================================
+     -82dBm        1c:1b:68:35:c6:5d        ARRIS Group, Inc.
+     -84dBm        fc:3f:db:ed:e9:8e        Hewlett Packard
+     -84dBm        dc:0b:34:7a:11:63        LG Electronics (Mobile Communications)
+     -84dBm        94:62:69:af:c3:64        ARRIS Group, Inc.
+     -84dBm        90:48:9a:34:15:65        Hon Hai Precision Ind. Co.,Ltd.
+     -84dBm        64:00:6a:07:48:13        Dell Inc.
+     -84dBm        00:30:44:38:76:c8        CradlePoint, Inc
+     -86dBm        44:1c:a8:fc:c0:53        Hon Hai Precision Ind. Co.,Ltd.
+     -86dBm        18:16:c9:c0:3b:75        Samsung Electronics Co.,Ltd
+     -86dBm        01:80:c2:62:9e:36
+     -86dBm        01:00:5e:11:90:47
+     -86dBm        00:24:a1:97:68:83        ARRIS Group, Inc.
+     -88dBm        f8:2c:18:f8:f3:aa        2Wire Inc
+     -88dBm        84:a1:d1:a6:34:08
+
+
+* Note that `foxhunt` is a builtin plugin, but you can define your own plugins using the same Plugin API.
+
 ### Example: Track mode with trigger plugin
 
     $ trackerjacker --track -m 3c:2e:ff:31:32:59 --threshold 10 --trigger-plugin examples/plugin_example1.py --channels-to-monitor 10,11,12,44 --trigger-cooldown 1

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # pylint: disable=C0111, C0103, W0703, R0902, R0903, R0912, R0913, R0914, R0915, C0413
 
+import os
 import copy
 import json
 import argparse
 from .common import TJException
+from . import plugin_parser
 
 # Default config
 DEFAULT_CONFIG = {'log_path': None,
@@ -225,8 +227,18 @@ def build_config(args):
     config_from_args = {k: v for k, v in config_from_args.items()
                         if v is not None and k not in non_config_args}
 
-    # Config from args trumps everything
+    # Config from args trumps default or config file
     config.update(config_from_args)
+
+    # Allow any plugins to override config
+    if config['trigger_plugin']:
+        trigger_plugin_path = get_real_plugin_path(config['trigger_plugin'])
+        parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin_path)
+
+        # Allow plugin to override any config parameters
+        if 'config' in parsed_trigger_plugin:
+            trigger_config = parsed_trigger_plugin['config']
+            config.update(**trigger_config)
 
     try:
         config['trigger_cooldown'] = float(config['trigger_cooldown'])
@@ -259,3 +271,13 @@ def build_config(args):
         config['channels_to_monitor'] = channels_to_monitor
 
     return config
+
+
+def get_real_plugin_path(trigger_plugin):
+    if not trigger_plugin.lower().endswith('.py') and '/' not in trigger_plugin:
+        possible_builtin_path = os.path.join(os.path.dirname(__file__),
+                                                'plugins',
+                                                '{}.py'.format(trigger_plugin))
+        if os.path.exists(possible_builtin_path):
+            trigger_plugin = possible_builtin_path
+    return trigger_plugin

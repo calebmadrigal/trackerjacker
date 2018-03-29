@@ -114,29 +114,8 @@ class TrackerJacker:
         if self.do_track:
             # Build trigger hit function
             if trigger_plugin:
-                # If trigger_plugin missing '.py' and doesn't contain '/', assume it's a built-in
-                # plugin (in trackerjacker/plugins)
-                if not trigger_plugin.lower().endswith('.py') and '/' not in trigger_plugin:
-                    possible_builtin_path = os.path.join(os.path.dirname(__file__),
-                                                         'plugins',
-                                                         '{}.py'.format(trigger_plugin))
-                    if os.path.exists(possible_builtin_path):
-                        trigger_plugin = possible_builtin_path
-
+                trigger_plugin = config_management.get_real_plugin_path(trigger_plugin)
                 parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin)
-
-                # Allow plugin to override any config parameters
-                if 'config' in parsed_trigger_plugin:
-                    trigger_config = parsed_trigger_plugin['config']
-                    self.__dict__.update(trigger_config)
-                    # In case log level changes
-                    if 'log_level' in trigger_config:
-                        log_level = LOG_NAME_TO_LEVEL.get(trigger_config['log_level'].upper(), None)
-                        if log_level:
-                            self.logger.setLevel(log_level)
-                            for handler in self.logger.handlers:
-                                handler.setLevel(log_level)
-
             else:
                 parsed_trigger_plugin = None
 
@@ -275,7 +254,7 @@ def main():
         tj = TrackerJacker(**config, logger=logger)  # pylint: disable=E1123
         tj.start()
     except TJException as e:
-        logger.error('Error: %s', e)
+        logger.critical('Error: %s', e)
     except KeyboardInterrupt:
         print('Stopping...')
     finally:

@@ -202,8 +202,7 @@ Displays a curses screen like this:
 ### Example: Track mode with trigger plugin
 
     $ trackerjacker --track -m 3c:2e:ff:31:32:59 --threshold 10 --trigger-plugin examples/plugin_example1.py --channels-to-monitor 10,11,12,44 --trigger-cooldown 1
-
-		Using monitor mode interface: wlan1337
+    Using monitor mode interface: wlan1337
     Monitoring channels: {10, 11, 12, 44}
     [@] Device (device 3c:2e:ff:31:32:59) threshold hit: 34 bytes
     3c:2e:ff:31:32:59 seen at: [1521926768.756529]

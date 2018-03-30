@@ -11,8 +11,7 @@ import pyaml
 import ruamel.yaml
 from . import dot11_frame  # pylint: disable=E0401
 from . import ieee_mac_vendor_db  # pylint: disable=E0401
-
-MACS_TO_IGNORE = {'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00'}
+from .common import MACS_TO_IGNORE
 
 
 def trim_frames_to_window(frames, window, now=None):

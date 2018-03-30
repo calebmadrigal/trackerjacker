@@ -1,7 +1,9 @@
 """Looks for and deauths the specified mac_to_deauth using aircrack-ng."""
-import time
 import subprocess
 
+__author__ = 'Caleb Madrigal'
+__email__ = 'caleb.madrigal@gmail.com'
+__version__ = '0.0.2'
 __apiversion__ = 1
 __config__ = {'trigger_cooldown': 1, 'log_level': 'ERROR'}
 

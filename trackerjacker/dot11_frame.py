@@ -19,12 +19,13 @@ class Dot11Frame:
     DOT11_FRAME_TYPE_CONTROL = 1
     DOT11_FRAME_TYPE_DATA = 2
 
-    def __init__(self, frame, channel=0):
+    def __init__(self, frame, channel=0, iface=None):
         self.frame = frame
         self.bssid = None
         self.ssid = None
         self.signal_strength = 0
         self.channel = channel
+        self.iface = iface
         self.frame_bytes = len(frame)
 
         # DS = Distribution System; wired infrastructure connecting multiple BSSs to form an ESS

@@ -67,9 +67,9 @@ class Dot11Tracker:
             self.eval_general_bssid_trigger(frame.bssid, frame, raw_frame)
             self.eval_general_ssid_trigger(frame.ssid, frame, raw_frame)
         else:
-            self.eval_mac_triggers(frame.macs, raw_frame)
-            self.eval_bssid_triggers(frame.bssid, raw_frame)
-            self.eval_ssid_triggers(frame.ssid, raw_frame)
+            self.eval_mac_triggers(frame.macs, frame, raw_frame)
+            self.eval_bssid_triggers(frame.bssid, frame, raw_frame)
+            self.eval_ssid_triggers(frame.ssid, frame, raw_frame)
 
     def eval_general_mac_trigger(self, macs, frame, raw_frame):
         for mac in macs:
@@ -86,6 +86,9 @@ class Dot11Tracker:
                                           'mac',
                                           num_bytes=bytes_in_window,
                                           vendor=dev_node['vendor'],
+                                          bssid=frame.bssid,
+                                          ssid=frame.ssid,
+                                          iface=frame.iface,
                                           raw_frame=raw_frame)
 
             if self.power and frame.signal_strength > self.power:
@@ -93,11 +96,14 @@ class Dot11Tracker:
                                       'mac',
                                       power=dev_node['signal'],
                                       vendor=dev_node['vendor'],
+                                      bssid=frame.bssid,
+                                      ssid=frame.ssid,
+                                      iface=frame.iface,
                                       raw_frame=raw_frame)
 
     def eval_general_bssid_trigger(self, bssid, frame, raw_frame):
         bssid_node = self.dot11_map.get_ap_by_bssid(bssid)
-        if self.threshold:
+        if self.threshold and bssid_node and 'frames' in bssid_node:
             bytes_in_window = self.get_bytes_in_window(bssid_node['frames'])
             if bytes_in_window >= self.threshold:
                 vendor = None
@@ -107,6 +113,7 @@ class Dot11Tracker:
                                       'bssid',
                                       num_bytes=bytes_in_window,
                                       vendor=vendor,
+                                      iface=frame.iface,
                                       raw_frame=raw_frame)
 
         if self.power and frame.signal_strength >= self.power:
@@ -117,6 +124,7 @@ class Dot11Tracker:
                                   'bssid',
                                   power=frame.signal_strength,
                                   vendor=vendor,
+                                  iface=frame.iface,
                                   raw_frame=raw_frame)
 
     def eval_general_ssid_trigger(self, ssid, frame, raw_frame):
@@ -124,21 +132,23 @@ class Dot11Tracker:
         if bssid_nodes:
             if self.threshold:
                 bytes_in_window = reduce(lambda acc, bssid_bytes: acc+bssid_bytes,
-                                         [bssid_node['frames'] for bssid_node in bssid_nodes],
+                                         [self.get_bytes_in_window(bssid_node['frames']) for bssid_node in bssid_nodes],
                                          0)
                 if bytes_in_window >= self.threshold:
                     self.do_trigger_alert(ssid,
                                           'ssid',
                                           num_bytes=bytes_in_window,
+                                          iface=frame.iface,
                                           raw_frame=raw_frame)
 
             if self.power and frame.signal_strength >= self.power:
                 self.do_trigger_alert(ssid,
                                       'ssid',
                                       power=frame.signal_strength,
+                                      iface=frame.iface,
                                       raw_frame=raw_frame)
 
-    def eval_mac_triggers(self, macs, raw_frame):
+    def eval_mac_triggers(self, macs, frame, raw_frame):
         # Only eval macs both on the "to watch" list and in the frame
         devices_to_eval = macs & self.devices_to_watch.keys()
         for mac in devices_to_eval:
@@ -158,6 +168,7 @@ class Dot11Tracker:
                                               'mac',
                                               num_bytes=bytes_in_window,
                                               vendor=dev_node['vendor'],
+                                              iface=frame.iface,
                                               raw_frame=raw_frame)
                         triggered = True
                 if dev_watch_node['power'] and dev_node['signal'] > dev_watch_node['power']:
@@ -165,6 +176,7 @@ class Dot11Tracker:
                                           'mac',
                                           power=dev_node['signal'],
                                           vendor=dev_node['vendor'],
+                                          iface=frame.iface,
                                           raw_frame=raw_frame)
                     triggered = True
 
@@ -172,7 +184,7 @@ class Dot11Tracker:
                 self.logger.debug('Bytes received for {} (threshold: {}) in last {} seconds: {}'
                                   .format(mac, dev_watch_node['threshold'], self.threshold_window, bytes_in_window))
 
-    def eval_bssid_triggers(self, bssid, raw_frame):
+    def eval_bssid_triggers(self, bssid, frame, raw_frame):
         if bssid not in self.bssids_to_watch:
             return
 
@@ -187,6 +199,7 @@ class Dot11Tracker:
                                       'bssid',
                                       power=bssid_node['signal'],
                                       vendor=bssid_node['vendor'],
+                                      iface=frame.iface,
                                       raw_frame=raw_frame)
                 triggered = True
 
@@ -196,6 +209,7 @@ class Dot11Tracker:
                                       'bssid',
                                       num_bytes=bytes_in_window,
                                       vendor=bssid_node['vendor'],
+                                      iface=frame.iface,
                                       raw_frame=raw_frame)
                 triggered = True
 
@@ -203,7 +217,7 @@ class Dot11Tracker:
             self.logger.info('Bytes received for {} in last {} seconds: {}'
                              .format(bssid, self.threshold_window, bytes_in_window))
 
-    def eval_ssid_triggers(self, ssid, raw_frame):
+    def eval_ssid_triggers(self, ssid, frame, raw_frame):
         if ssid not in self.ssids_to_watch:
             return
 
@@ -219,13 +233,23 @@ class Dot11Tracker:
                 self.do_trigger_alert(ssid,
                                       'ssid',
                                       num_bytes=bytes_in_window,
+                                      iface=frame.iface,
                                       raw_frame=raw_frame)
                 return
 
         self.logger.info('Bytes received for {} in last {} seconds: {}'
                          .format(ssid, self.threshold_window, bytes_in_window))
 
-    def do_trigger_alert(self, dev_id, dev_type, num_bytes=None, power=None, vendor=None, raw_frame=None):
+    def do_trigger_alert(self,
+                         dev_id,
+                         dev_type,
+                         num_bytes=None,
+                         power=None,
+                         vendor=None,
+                         bssid=None,
+                         ssid=None,
+                         iface=None,
+                         raw_frame=None):
         """Do alert for triggered item.
 
         Args:
@@ -252,6 +276,9 @@ class Dot11Tracker:
                                                num_bytes=num_bytes,
                                                power=power,
                                                vendor=vendor,
+                                               bssid=bssid,
+                                               ssid=ssid,
+                                               iface=iface,
                                                frame=raw_frame)
             except Exception as e:
                 raise TJException('Error occurred in trigger plugin: {}'.format(e))

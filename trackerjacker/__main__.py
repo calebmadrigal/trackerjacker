@@ -72,6 +72,7 @@ class TrackerJacker:
                  trigger_cooldown=30,
                  beep_on_trigger=False):  # seconds
 
+        self.iface = iface
         self.do_map = do_map
         self.do_track = do_track
         self.map_file = map_file
@@ -140,7 +141,7 @@ class TrackerJacker:
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
-            frame = dot11_frame.Dot11Frame(pkt, int(self.iface_manager.current_channel))
+            frame = dot11_frame.Dot11Frame(pkt, int(self.iface_manager.current_channel), iface=self.iface_manager.iface)
             if self.do_map:
                 self.log_newly_found(frame)
 

@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {'log_path': None,
                   'map_file': 'wifi_map.yaml',
                   'map_save_interval': 10,
                   'trigger_plugin': None,
+                  'plugin_config': None,
                   'trigger_command': None,
                   'trigger_cooldown': 30,
                   'channels_to_monitor': None,
@@ -70,6 +71,8 @@ def get_arg_parser():
                         help='Default power threshold (unless overridden on a per-dev basis) for triggering')
     parser.add_argument('--trigger-plugin', type=str, dest='trigger_plugin',
                         help='Python trigger plugin file path; for more information')
+    parser.add_argument('--plugin-config', type=str, dest='plugin_config',
+                        help='Config to pass to python trigger plugin. Must be a python dict or json obj.')
     parser.add_argument('--trigger-command', type=str, dest='trigger_command',
                         help='Command to execute upon alert')
     parser.add_argument('--trigger-cooldown', type=str, dest='trigger_cooldown',
@@ -233,7 +236,7 @@ def build_config(args):
     # Allow any plugins to override config
     if config['trigger_plugin']:
         trigger_plugin_path = get_real_plugin_path(config['trigger_plugin'])
-        parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin_path)
+        parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin_path, config['plugin_config'])
 
         # Allow plugin to override any config parameters
         if 'config' in parsed_trigger_plugin:
@@ -276,8 +279,8 @@ def build_config(args):
 def get_real_plugin_path(trigger_plugin):
     if not trigger_plugin.lower().endswith('.py') and '/' not in trigger_plugin:
         possible_builtin_path = os.path.join(os.path.dirname(__file__),
-                                                'plugins',
-                                                '{}.py'.format(trigger_plugin))
+                                             'plugins',
+                                             '{}.py'.format(trigger_plugin))
         if os.path.exists(possible_builtin_path):
             trigger_plugin = possible_builtin_path
     return trigger_plugin

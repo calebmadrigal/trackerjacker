@@ -68,6 +68,7 @@ class TrackerJacker:
                  aps_to_watch=(),
                  threshold_window=10,
                  trigger_plugin=None,
+                 plugin_config=None,
                  trigger_command=None,
                  trigger_cooldown=30,
                  beep_on_trigger=False):  # seconds
@@ -116,7 +117,7 @@ class TrackerJacker:
             # Build trigger hit function
             if trigger_plugin:
                 trigger_plugin = config_management.get_real_plugin_path(trigger_plugin)
-                parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin)
+                parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin, plugin_config)
             else:
                 parsed_trigger_plugin = None
 
@@ -137,7 +138,6 @@ class TrackerJacker:
                                                                      channels_to_monitor,
                                                                      channel_switch_scheme,
                                                                      time_per_channel)
-
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
@@ -243,7 +243,12 @@ def main():
         print('Error: {}'.format(e), file=sys.stderr)
         sys.exit(1)
 
-    config = config_management.build_config(argparse_args)
+    try:
+        config = config_management.build_config(argparse_args)
+    except TJException as e:
+        print('{}'.format(e))
+        sys.exit(1)
+
     if config['log_level'] == 'DEBUG':
         print('Config:')
         pprint.pprint(config)

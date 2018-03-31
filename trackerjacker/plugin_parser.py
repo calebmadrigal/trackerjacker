@@ -14,33 +14,66 @@ Likewise, if specifying a 'Trigger' class, that class must define a '__call__' m
 a subset of the kwargs specified by 'default_trigger', and should always contain a catch-all **kwargs
 for future compatibility.
 
+plugin_config is a dict of config passed to Trigger as kwargs.
+
 Note that this plugin system is not sandboxed, so if the code in trigger_path brakes something,
 the host program will break (unless it is explicitly handling any errors).
 
 Last, a trigger can override any config parameters with the __config__ param.
 """
 
+import ast
+import json
+from .common import TJException
+
 CURRENT_TRIGGER_API_VERSION = 1
 
 
-def parse_trigger_plugin(trigger_path):
+def parse_trigger_plugin(trigger_path, plugin_config):
     """Parse plugin file and return the trigger config."""
+
+    # Open and exec plugin definitions
     with open(trigger_path, 'r') as f:
         trigger_code = f.read()
     trigger_vars = {}
     exec(trigger_code, trigger_vars)
 
+    # Get trigger data
     api_version = trigger_vars.get('__apiversion__', CURRENT_TRIGGER_API_VERSION)
     config = trigger_vars.get('__config__', {})
     trigger = trigger_vars.get('trigger', None)
     trigger_class = trigger_vars.get('Trigger', None)
 
     if trigger_class:
+        # Pass optional plugin_config to trigger class
+        plugin_config = parse_plugin_config(plugin_config)
+
         # Instantiate class. Note that only a trigger function or class can be defined (and class takes priority)
         # Assume the class is called 'Trigger'
-        trigger = trigger_class()
+        try:
+            trigger = trigger_class(**plugin_config)
+        except Exception as e:
+            raise TJException('Error loading plugin ({}): {}'.format(trigger_path, e))
 
     if not trigger:
-        raise Exception('Plugin file must specify a "trigger" function or a "Trigger" class')
+        raise TJException('Plugin file must specify a "trigger" function or a "Trigger" class')
 
     return {'trigger': trigger, 'api_version': api_version, 'config': config}
+
+
+def parse_plugin_config(plugin_config_str):
+    """Attempt to parse the config as ast or json."""
+    if not plugin_config_str:
+        return {}
+
+    try:
+        return ast.literal_eval(plugin_config_str)
+    except SyntaxError:
+        pass
+
+    try:
+        return json.loads(plugin_config_str)
+    except json.decoder.JSONDecodeError:
+        pass
+
+    return {}

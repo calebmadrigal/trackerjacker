@@ -182,7 +182,8 @@ class TrackerJacker:
                                    self.dot11_map.access_points.keys() |
                                    dot11_mapper.MACS_TO_IGNORE)]
         for mac in new_macs:
-            self.logger.info('MAC found: %s, Channel: %d', mac, frame.channel)
+            if mac:  # The frame can be crafted to include a null mac
+                self.logger.info('MAC found: %s, Channel: %d', mac, frame.channel)
 
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)

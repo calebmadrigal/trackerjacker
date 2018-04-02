@@ -7,16 +7,19 @@ import time
 import random
 import threading
 import subprocess
+import collections
 
 from .common import TJException  # pylint: disable=E0401
 
 ADAPTER_MODE_MANAGED = 1    # ARPHRD_ETHER
 ADAPTER_MONITOR_MODE = 803  # ARPHRD_IEEE80211_RADIOTAP
+MIN_FRAME_COUNT = 5
 
 
 def check_interface_exists(iface):
     if not os.path.exists('/sys/class/net/{}'.format(iface)):
         raise TJException('Interface {} not found'.format(iface))
+
 
 def set_interface_mode(iface, mode):
     check_interface_exists(iface)
@@ -82,8 +85,10 @@ def get_supported_channels(iface):
     channels = list(sorted(list(set([int(chan) for chan in channels]))))
     return channels
 
+
 def switch_to_channel(iface, channel_num):
     subprocess.call('iw dev {} set channel {}'.format(iface, channel_num), shell=True)
+
 
 def select_interface(iface, logger):
     selected_iface = None
@@ -137,11 +142,18 @@ class Dot11InterfaceManager:
         self.supported_channels = []
         self.current_channel = 1
         self.last_channel_switch_time = 0
-        self.num_msgs_received_this_channel = 0
-        self.msgs_per_channel = {}
+        self.num_frames_received_this_channel = 0
 
-        self.channel_switch_func = self.switch_channel_round_robin
+        self.channel_switch_func = self.switch_channel_round_robin  # default
         self.configure_channels(channels_to_monitor, channel_switch_scheme)
+
+        # Leaky bucket per channel to track how many frames were seen last time that channels was monitored
+        # The leaky bucket helps ensure that if at one time, someone downloads a video or something,
+        # that channel doesn't forever get dominance.
+        counter_leaky_bucket_size = 10
+        self.frame_counts_per_channel = {c: collections.deque([(time.time(), MIN_FRAME_COUNT)],
+                                                              maxlen=counter_leaky_bucket_size)
+                                         for c in self.channels_to_monitor}
 
     def configure_channels(self, channels_to_monitor, channel_switch_scheme):
         # Find supported channels
@@ -167,12 +179,6 @@ class Dot11InterfaceManager:
         if channel_switch_scheme == 'traffic_based':
             self.channel_switch_func = self.switch_channel_based_on_traffic
 
-            # Start with a high count for each channel, so each channel is more likely to be tried
-            # at least once before having the true count for it set
-            self.msgs_per_channel = {c: 100000 for c in self.channels_to_monitor}
-
-        self.last_channel_switch_time = 0
-        self.num_msgs_received_this_channel = 0
         self.switch_to_channel(self.current_channel, force=True)
 
     def channel_switcher_thread(self, firethread=True):  # pylint: disable=R1710
@@ -190,12 +196,14 @@ class Dot11InterfaceManager:
                 self.last_channel_switch_time = time.time()
 
     def get_next_channel_based_on_traffic(self):
-        total_count = sum((count for channel, count in self.msgs_per_channel.items()))
-        percent_to_channel = {count/total_count: channel for channel, count in self.msgs_per_channel.items()}
+        count_by_channel = {c: sum([count for ts, count in frame_count_list])
+                            for c, frame_count_list in self.frame_counts_per_channel.items()}
+        total_count = sum(count_by_channel.values())
+        percent_to_channel = [(count/total_count, channel) for channel, count in count_by_channel.items()]
 
         percent_sum = 0
         sum_to_reach = random.random()
-        for percent, channel in percent_to_channel.items():
+        for percent, channel in percent_to_channel:
             percent_sum += percent
             if percent_sum >= sum_to_reach:
                 return channel
@@ -206,11 +214,12 @@ class Dot11InterfaceManager:
         next_channel = self.get_next_channel_based_on_traffic()
 
         # Don't ever set a channel to a 0% probability of being hit again
-        if self.num_msgs_received_this_channel == 0:
-            self.num_msgs_received_this_channel = min(self.msgs_per_channel.values())
+        if self.num_frames_received_this_channel == 0:
+            self.num_frames_received_this_channel = MIN_FRAME_COUNT
 
-        self.msgs_per_channel[self.current_channel] = self.num_msgs_received_this_channel
-        self.num_msgs_received_this_channel = 0
+        time_frames_entry = (time.time(), self.num_frames_received_this_channel)
+        self.frame_counts_per_channel[self.current_channel].append(time_frames_entry)
+        self.num_frames_received_this_channel = 0
         self.switch_to_channel(next_channel)
 
     def switch_channel_round_robin(self):
@@ -225,9 +234,8 @@ class Dot11InterfaceManager:
         switch_to_channel(self.iface, channel_num)
         self.current_channel = channel_num
 
-    def update_frame(self, frame):
-        # TODO: Switch over to looking at frame len
-        self.num_msgs_received_this_channel += 1
+    def add_frame(self, frame):
+        self.num_frames_received_this_channel += 1
 
     def start(self):
         self.channel_switcher_thread()

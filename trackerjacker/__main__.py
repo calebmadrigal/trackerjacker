@@ -141,6 +141,7 @@ class TrackerJacker:
 
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
+            looking_for_specifics_and_none_found = self.aps_to_watch_set or self.devices_to_watch_set
             frame = dot11_frame.Dot11Frame(pkt, int(self.iface_manager.current_channel), iface=self.iface_manager.iface)
             if self.do_map:
                 self.log_newly_found(frame)
@@ -148,17 +149,24 @@ class TrackerJacker:
             if self.display_all_packets:
                 print('\t', pkt.summary())
 
-            # Filter out packets not in the list of Access Points to monitor (if specified)
+            # See if any APs we care about (if we're looking for specific APs)
             if self.aps_to_watch_set:
                 if frame.bssid not in self.aps_to_watch_set:
-                    return
+                    looking_for_specifics_and_none_found = False
 
-            # See if any MACs we care about are here
-            matched_macs = self.devices_to_watch_set & frame.macs
-            if matched_macs:
-                # Display matched packets (if specified)
-                if self.display_matching_packets and not self.display_all_packets:
-                    print('\t', pkt.summary())
+            # See if any MACs we care about (if we're looking for specific MACs)
+            if self.devices_to_watch_set:
+                matched_macs = self.devices_to_watch_set & frame.macs
+                if matched_macs:
+                    looking_for_specifics_and_none_found = False
+
+                    # Display matched packets (if specified)
+                    if self.display_matching_packets and not self.display_all_packets:
+                        print('\t', pkt.summary())
+
+            # If we are looking for specific APs or Devices and none are found, no further processing needed
+            if looking_for_specifics_and_none_found:
+                return
 
             # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
             # (which is why this isn't under the 'if matched_matcs' block).
@@ -171,6 +179,9 @@ class TrackerJacker:
 
             if self.do_track:
                 self.dot11_tracker.add_frame(frame, pkt)
+
+            # Update device tracking (for traffic-based)
+            self.iface_manager.add_frame(frame)
 
     def log_newly_found(self, frame):
         # Log newly-found things

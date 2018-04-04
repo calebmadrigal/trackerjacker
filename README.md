@@ -12,6 +12,17 @@ PyPI page: https://pypi.python.org/pypi/trackerjacker
 
 ![visual description](https://i.imgur.com/I5NH5KM.jpg)
 
+trackerjacker can help with the following:
+
+* I want to know all the nearby wifi networks **and know all the devices connected to each network.**
+* I want to know who's hogging all the bandwidth.
+* I want to run a command when this MAC address sends more than 100000 bytes in a 30 second window (maybe to determine when an IP camera is uploading a video, which is indicative that it just saw motion).
+* I want to deauth anyone who uses more than 100000 bytes in a 10 second window.
+* I want to deauth every Dropcam in the area so my Airbnb hosts don't spy on me.
+* I want to be alerted when any MAC address is seen at a power level greater than -40dBm that I've never seen before.
+* I want to see when this particular person is nearby (based on the MAC of their mobile phone) and run a command to alert me.
+* I want to write my own plugin to run some script to do something fun every time a new Apple device shows up nearby.
+
 ## Usage
 
 Find detailed usage like this:
@@ -265,14 +276,6 @@ Note that trackerjacker will automatically enable/disable monitor mode if necess
     trackerjacker --set-channel 11 -i wlan0
 
 Note that trackerjacker will automatically switch channels as necessary during normal map/track actions. This option is just useful if you want to set the channel on an interface for use with other applications.
-
-## Example use-cases
-
-* Map out all the nearby wifi devices (and which devices are asspciated with which Access Points)
-* Track when a particular MAC is seen
-* Track when a particular MAC sends some threshold of data in some time period
-* Track when traffic is happening on a particular Access Point
-* Find/track all connections on a particular Access Point
 
 ## Recommended hardware
 

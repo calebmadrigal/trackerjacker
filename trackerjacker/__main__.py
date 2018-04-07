@@ -269,7 +269,7 @@ def main():
     logger = make_logger(config.pop('log_path'), config.pop('log_level'))
 
     try:
-        tj = TrackerJacker(**config, logger=logger)  # pylint: disable=E1123
+        tj = TrackerJacker(**dict(config, **{'logger': logger}))  # pylint: disable=E1123
         tj.start()
     except TJException as e:
         logger.critical('Error: %s', e)

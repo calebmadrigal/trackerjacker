@@ -210,7 +210,11 @@ class TrackerJacker:
 
 
 def do_simple_tasks_if_specified(args):
-    if args.do_enable_monitor_mode:
+    if args.version:
+        from .version import __version__
+        print('trackerjacker {}'.format(__version__))
+        sys.exit(0)
+    elif args.do_enable_monitor_mode:
         if not args.iface:
             raise TJException('You must specify the interface with the -i paramter')
         device_management.monitor_mode_on(args.iface)

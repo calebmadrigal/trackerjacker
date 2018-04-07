@@ -53,6 +53,8 @@ def get_arg_parser():
                         help='Print boilerplate config file and exit')
 
     # Normal switches
+    parser.add_argument('-v', '--version', action='store_true', dest='version',
+                        help='Display trackerjacker version')
     parser.add_argument('-i', '--interface', type=str, dest='iface',
                         help='Network interface to use; if empty, try to find monitor inferface')
     parser.add_argument('-m', '--macs', type=str, dest='devices_to_watch',

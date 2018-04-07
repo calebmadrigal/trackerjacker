@@ -1,4 +1,4 @@
-# pylint: disable=C0103, C0111, C0326
+# pylint: disable=C0103, C0111, C0326, W0122
 
 from setuptools import setup
 
@@ -7,10 +7,10 @@ with open('requirements.txt', 'r') as f:
 
 
 def get_version():
-    with open('trackerjacker/__init__.py', 'r') as f:
-        lines = f.readlines()
-    version_line = [line for line in lines if line.startswith('__version__')][0]
-    return version_line.split('=')[1].strip().replace('"', '')
+    version = {}
+    with open("trackerjacker/version.py") as fp:
+        exec(fp.read(), version)
+    return version['__version__']
 
 
 def get_readme():

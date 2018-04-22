@@ -225,7 +225,7 @@ def build_config(args):
         except (IOError, OSError, json.decoder.JSONDecodeError) as e:
             raise TJException('Error loading config file ({}): {}'.format(args.config, e))
 
-    non_config_args = {'config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode',
+    non_config_args = {'config', 'devices_to_watch', 'aps_to_watch', 'do_enable_monitor_mode', 'version',
                        'do_disable_monitor_mode', 'set_channel', 'print_default_config', 'mac_lookup'}
 
     config_from_args = vars(args)

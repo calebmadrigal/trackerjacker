@@ -58,7 +58,10 @@ class Dot11Frame:
             self.ssid = frame[scapy.Dot11Elt].info.decode().replace('\x00', '[NULL]')
 
         if frame.haslayer(scapy.RadioTap):
-            self.signal_strength = frame[scapy.RadioTap].dbm_antsignal
+            try:
+                self.signal_strength = frame[scapy.RadioTap].dbm_antsignal
+            except AttributeError:
+                self.signal_strength = 0
 
     def frame_type(self):
         """Returns the 802.11 frame type."""

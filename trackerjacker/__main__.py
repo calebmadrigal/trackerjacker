@@ -8,6 +8,7 @@ import json
 import errno
 import pprint
 import logging
+import traceback
 
 from . import config_management
 from . import device_management
@@ -199,7 +200,13 @@ class TrackerJacker:
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)
         self.iface_manager.start()
-        scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
+        while True:
+            try:
+                scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
+            except Exception:
+                self.logger.error(traceback.format_exc())
+                self.logger.info('Sniffer error occurred. Restarting sniffer in 3 seconds...')
+                time.sleep(3)
 
     def stop(self):
         self.iface_manager.stop()

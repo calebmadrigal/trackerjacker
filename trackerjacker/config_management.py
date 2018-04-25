@@ -238,7 +238,9 @@ def build_config(args):
     # Allow any plugins to override config
     if config['trigger_plugin']:
         trigger_plugin_path = get_real_plugin_path(config['trigger_plugin'])
-        parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin_path, config['plugin_config'])
+        parsed_trigger_plugin = plugin_parser.parse_trigger_plugin(trigger_plugin_path,
+                                                                   config['plugin_config'],
+                                                                   parse_only=True)
 
         # Allow plugin to override any config parameters
         if 'config' in parsed_trigger_plugin:
@@ -283,6 +285,7 @@ def get_real_plugin_path(trigger_plugin):
         possible_builtin_path = os.path.join(os.path.dirname(__file__),
                                              'plugins',
                                              '{}.py'.format(trigger_plugin))
+        print('Possible builtin path: {}'.format(possible_builtin_path))
         if os.path.exists(possible_builtin_path):
             trigger_plugin = possible_builtin_path
     return trigger_plugin

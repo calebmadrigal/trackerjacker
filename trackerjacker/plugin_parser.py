@@ -29,7 +29,7 @@ from .common import TJException
 CURRENT_TRIGGER_API_VERSION = 1
 
 
-def parse_trigger_plugin(trigger_path, plugin_config):
+def parse_trigger_plugin(trigger_path, plugin_config, parse_only=False):
     """Parse plugin file and return the trigger config."""
 
     # Open and exec plugin definitions
@@ -44,19 +44,22 @@ def parse_trigger_plugin(trigger_path, plugin_config):
     trigger = trigger_vars.get('trigger', None)
     trigger_class = trigger_vars.get('Trigger', None)
 
-    if trigger_class:
-        # Pass optional plugin_config to trigger class
-        plugin_config = parse_plugin_config(plugin_config)
+    if parse_only:
+        trigger = None
+    else:
+        if trigger_class:
+            # Pass optional plugin_config to trigger class
+            plugin_config = parse_plugin_config(plugin_config)
 
-        # Instantiate class. Note that only a trigger function or class can be defined (and class takes priority)
-        # Assume the class is called 'Trigger'
-        try:
-            trigger = trigger_class(**plugin_config)
-        except Exception as e:
-            raise TJException('Error loading plugin ({}): {}'.format(trigger_path, e))
+            # Instantiate class. Note that only a trigger function or class can be defined (and class takes priority)
+            # Assume the class is called 'Trigger'
+            try:
+                trigger = trigger_class(**plugin_config)
+            except Exception as e:
+                raise TJException('Error loading plugin ({}): {}'.format(trigger_path, e))
 
-    if not trigger:
-        raise TJException('Plugin file must specify a "trigger" function or a "Trigger" class')
+        if not trigger:
+            raise TJException('Plugin file must specify a "trigger" function or a "Trigger" class')
 
     return {'trigger': trigger, 'api_version': api_version, 'config': config}
 

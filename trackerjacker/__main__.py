@@ -8,6 +8,7 @@ import json
 import errno
 import pprint
 import logging
+import inspect
 import traceback
 
 from . import config_management
@@ -202,7 +203,11 @@ class TrackerJacker:
         self.iface_manager.start()
         while True:
             try:
-                scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, exceptions=True)
+                if 'exceptions' in inspect.signature(scapy.sniff).parameters:
+                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, exceptions=True)
+                else:
+                    # For versions of scapy that don't provide the exceptions kwarg
+                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
             except KeyboardInterrupt:
                 break
             except OSError:

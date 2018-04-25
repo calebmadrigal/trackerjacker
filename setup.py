@@ -24,7 +24,7 @@ def get_readme():
 
 setup(
     name = 'trackerjacker',
-    packages = ['trackerjacker'],
+    packages = ['trackerjacker', 'trackerjacker/plugins'],
     url = 'https://github.com/calebmadrigal/trackerjacker',
     version = get_version(),
     description = 'Finds and tracks wifi devices through raw 802.11 monitoring',

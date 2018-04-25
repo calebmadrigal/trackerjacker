@@ -3,6 +3,7 @@
 
 import re
 import time
+import traceback
 import threading
 import subprocess
 from functools import reduce
@@ -281,8 +282,8 @@ class Dot11Tracker:
                                                channel=frame.channel,
                                                frame_type=frame.frame_type_name(),
                                                frame=raw_frame)
-            except Exception as e:
-                raise TJException('Error occurred in trigger plugin: {}'.format(e))
+            except Exception:
+                raise TJException('Error occurred in trigger plugin: {}'.format(traceback.format_exc()))
 
         elif self.trigger_command:
             # Start trigger_command in background process - fire and forget

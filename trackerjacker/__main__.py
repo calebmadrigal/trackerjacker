@@ -202,8 +202,10 @@ class TrackerJacker:
         self.iface_manager.start()
         while True:
             try:
-                scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
-            except Exception:
+                scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, exceptions=True)
+            except KeyboardInterrupt:
+                break
+            except OSError:
                 self.logger.error(traceback.format_exc())
                 self.logger.info('Sniffer error occurred. Restarting sniffer in 3 seconds...')
                 time.sleep(3)

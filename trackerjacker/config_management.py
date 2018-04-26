@@ -285,7 +285,6 @@ def get_real_plugin_path(trigger_plugin):
         possible_builtin_path = os.path.join(os.path.dirname(__file__),
                                              'plugins',
                                              '{}.py'.format(trigger_plugin))
-        print('Possible builtin path: {}'.format(possible_builtin_path))
         if os.path.exists(possible_builtin_path):
             trigger_plugin = possible_builtin_path
     return trigger_plugin

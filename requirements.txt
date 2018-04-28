@@ -1,4 +1,4 @@
-scapy-python3>=0.21
+scapy>=2.4.0
 pyaml>=17.12.1
 ruamel.yaml>=0.15.35
 

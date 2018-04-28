@@ -4,11 +4,7 @@
 
 import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
-try:
-    import scapy.all as scapy
-except ModuleNotFoundError:
-    logging.getLogger("scapy3k.runtime").setLevel(logging.ERROR)
-    import scapy3k.all as scapy
+import scapy.all as scapy
 
 
 class Dot11Frame:
@@ -61,7 +57,10 @@ class Dot11Frame:
             try:
                 self.signal_strength = frame[scapy.RadioTap].dbm_antsignal
             except AttributeError:
-                self.signal_strength = 0
+                try:
+                    self.signal_strength = -(256-ord(frame.notdecoded[-4:-3]))
+                except Exception:
+                    self.signal_strength = -257
 
     def frame_type(self):
         """Returns the 802.11 frame type."""

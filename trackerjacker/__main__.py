@@ -11,6 +11,9 @@ import logging
 import inspect
 import traceback
 
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
+import scapy.all as scapy
+
 from . import config_management
 from . import device_management
 from . import dot11_frame
@@ -20,14 +23,8 @@ from . import plugin_parser
 from . import ieee_mac_vendor_db
 from .common import TJException
 
-logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
-try:
-    import scapy.all as scapy
-except ModuleNotFoundError:
-    logging.getLogger("scapy3k.runtime").setLevel(logging.ERROR)
-    import scapy3k.all as scapy
-
 LOG_NAME_TO_LEVEL = {'DEBUG': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40, 'CRITICAL': 50}
+
 
 def make_logger(log_path=None, log_level_str='INFO'):
     logger = logging.getLogger('trackerjacker')
@@ -205,12 +202,12 @@ class TrackerJacker:
             try:
                 if 'exceptions' in inspect.signature(scapy.sniff).parameters:
                     scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, exceptions=True)
+                    break
                 else:
                     # For versions of scapy that don't provide the exceptions kwarg
                     scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
-            except KeyboardInterrupt:
-                break
-            except OSError:
+                    break
+            except (IOError, OSError):
                 self.logger.error(traceback.format_exc())
                 self.logger.info('Sniffer error occurred. Restarting sniffer in 3 seconds...')
                 time.sleep(3)

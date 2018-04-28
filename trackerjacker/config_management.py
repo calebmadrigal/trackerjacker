@@ -71,6 +71,8 @@ def get_arg_parser():
                         help='Default data threshold (unless overridden on a per-dev basis) for triggering')
     parser.add_argument('--power', type=int, dest='power',
                         help='Default power threshold (unless overridden on a per-dev basis) for triggering')
+    parser.add_argument('--plugin', type=str, dest='trigger_plugin',
+                        help='Python trigger plugin file path; for more information')
     parser.add_argument('--trigger-plugin', type=str, dest='trigger_plugin',
                         help='Python trigger plugin file path; for more information')
     parser.add_argument('--plugin-config', type=str, dest='plugin_config',

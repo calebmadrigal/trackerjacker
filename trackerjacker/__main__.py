@@ -8,20 +8,24 @@ import json
 import errno
 import pprint
 import logging
-import inspect
+import platform
 import traceback
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 import scapy.all as scapy
 
 from . import config_management
-from . import device_management
 from . import dot11_frame
 from . import dot11_mapper
 from . import dot11_tracker
 from . import plugin_parser
 from . import ieee_mac_vendor_db
 from .common import TJException
+
+if platform.system() == 'Linux':
+    from . import linux_device_management as device_management
+elif platform.system() == 'Darwin':
+    from . import macos_device_management as device_management
 
 LOG_NAME_TO_LEVEL = {'DEBUG': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40, 'CRITICAL': 50}
 
@@ -200,14 +204,20 @@ class TrackerJacker:
         self.iface_manager.start()
         while True:
             try:
-                if 'exceptions' in inspect.signature(scapy.sniff).parameters:
-                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, exceptions=True)
+                # macOS
+                if platform.system() == 'Darwin':
+                    self.logger.warning('trackerjacker macOS support is pre-alpha - most functionality is linux-only')
+                    scapy.sniff(iface=self.iface_manager.iface, monitor=True, prn=self.process_packet, store=0)
                     break
+                # linux
                 else:
                     # For versions of scapy that don't provide the exceptions kwarg
                     scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
                     break
-            except (IOError, OSError):
+
+            except TJException:
+                raise
+            except (OSError, IOError):
                 self.logger.error(traceback.format_exc())
                 self.logger.info('Sniffer error occurred. Restarting sniffer in 3 seconds...')
                 time.sleep(3)

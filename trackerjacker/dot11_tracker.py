@@ -286,8 +286,11 @@ class Dot11Tracker:
                 raise TJException('Error occurred in trigger plugin: {}'.format(traceback.format_exc()))
 
         elif self.trigger_command:
-            # Start trigger_command in background process - fire and forget
-            subprocess.Popen(self.trigger_command)
+            try:
+                # Start trigger_command in background process - fire and forget
+                subprocess.Popen(self.trigger_command)
+            except Exception:
+                raise TJException('Error occurred in trigger command: {}'.format(traceback.format_exc()))
 
         else:
             if num_bytes:

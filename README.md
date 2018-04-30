@@ -8,7 +8,7 @@ PyPI page: https://pypi.python.org/pypi/trackerjacker
 
     pip3 install trackerjacker
 
-**Linux-only** at this time (tested on Ubuntu, Kali, and RPi).
+*Supported platforms*: Linux (tested on Ubuntu, Kali, and RPi) and macOS (pre-alpha)
 
 ![visual description](https://i.imgur.com/I5NH5KM.jpg)
 
@@ -296,7 +296,11 @@ Note that trackerjacker will automatically switch channels as necessary during n
 - [x] Plugin system
 - [x] Fox hunt mode
 - [x] Tracking by SSID (and not just BSSID)
-- [ ] macOS (OS X) support (under active development)
+- [x] Basic macOS (OS X) support (pre-alpha)
+- [ ] macOS support: reverse airport binary to determine how to set true monitor mode
+- [ ] macOS support: diverse interface support (not just `en0`)
+- [ ] macOS support: get interface supported channels
+- [ ] macOS support: get signal strength values correct
 - [ ] Mapping a specific SSID
 - [ ] Performance enhancement: not shelling out for channel switching
 - [ ] "Jack" mode - deauth attacks

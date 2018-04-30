@@ -1,6 +1,6 @@
 """Provides nice interface for Dot11 Frames"""
 
-# pylint: disable=R0902
+# pylint: disable=R0902, C0413, W0703
 
 import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
@@ -51,7 +51,12 @@ class Dot11Frame:
         if (frame.haslayer(scapy.Dot11Elt) and
                 (frame.haslayer(scapy.Dot11Beacon) or frame.haslayer(scapy.Dot11ProbeResp))):
 
-            self.ssid = frame[scapy.Dot11Elt].info.decode().replace('\x00', '[NULL]')
+            try:
+                self.ssid = frame[scapy.Dot11Elt].info.decode().replace('\x00', '[NULL]')
+            except UnicodeDecodeError:
+                # Only seems to happen on macOS - probably some pcap decoding bug
+                self.ssid = None
+                #print('Error decoding ssid: {}'.format(frame[scapy.Dot11Elt].info))
 
         if frame.haslayer(scapy.RadioTap):
             try:

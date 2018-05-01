@@ -8,6 +8,8 @@ PyPI page: https://pypi.python.org/pypi/trackerjacker
 
     pip3 install trackerjacker
 
+(Note: Only works on Python 3.6.x right now - other versions will be supported once one of the dependencies fixes an installation bug: https://bitbucket.org/ruamel/yaml/issues/198/pip-install-issue-runtimeerror-dictionary)
+
 *Supported platforms*: Linux (tested on Ubuntu, Kali, and RPi) and macOS (pre-alpha)
 
 ![visual description](https://i.imgur.com/I5NH5KM.jpg)

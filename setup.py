@@ -50,6 +50,7 @@ setup(
         'Topic :: System :: Networking',
         'Topic :: System :: Networking :: Monitoring',
         'Topic :: Security',
-        'Operating System :: POSIX :: Linux'
+        'Operating System :: POSIX :: Linux',
+        'Operating System :: MacOS'
     ],
 )

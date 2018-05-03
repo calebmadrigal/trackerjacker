@@ -99,6 +99,11 @@ class TrackerJacker:
             self.logger.info('Map output file: %s', self.map_file)
             if os.path.exists(self.map_file):
                 self.dot11_map = dot11_mapper.Dot11Map.load_from_file(self.map_file)
+                if self.dot11_map:
+                    self.logger.info('Loaded %d devices and %d ssids from %s',
+                                     len(self.dot11_map.devices),
+                                     len(self.dot11_map.ssid_to_access_point),
+                                     self.map_file)
             else:
                 self.logger.warning('Specified map file not found - creating new map file.')
 
@@ -206,7 +211,7 @@ class TrackerJacker:
             try:
                 # macOS
                 if platform.system() == 'Darwin':
-                    self.logger.warning('trackerjacker macOS support is pre-alpha - most functionality is linux-only')
+                    self.logger.warning('macOS support is pre-alpha - many improvements coming soon')
                     scapy.sniff(iface=self.iface_manager.iface, monitor=True, prn=self.process_packet, store=0)
                     break
                 # linux

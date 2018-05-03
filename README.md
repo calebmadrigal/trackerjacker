@@ -8,8 +8,6 @@ PyPI page: https://pypi.python.org/pypi/trackerjacker
 
     pip3 install trackerjacker
 
-(Note: Only works on Python 3.6.x right now - other versions will be supported once one of the dependencies fixes an installation bug: https://bitbucket.org/ruamel/yaml/issues/198/pip-install-issue-runtimeerror-dictionary)
-
 *Supported platforms*: Linux (tested on Ubuntu, Kali, and RPi) and macOS (pre-alpha)
 
 ![visual description](https://i.imgur.com/I5NH5KM.jpg)
@@ -299,10 +297,10 @@ Note that trackerjacker will automatically switch channels as necessary during n
 - [x] Fox hunt mode
 - [x] Tracking by SSID (and not just BSSID)
 - [x] Basic macOS (OS X) support (pre-alpha)
+- [ ] macOS support: get signal strength values correct (will be fixed in https://github.com/secdev/scapy/pull/1381
 - [ ] macOS support: reverse airport binary to determine how to set true monitor mode
 - [ ] macOS support: diverse interface support (not just `en0`)
 - [ ] macOS support: get interface supported channels
-- [ ] macOS support: get signal strength values correct
 - [ ] Mapping a specific SSID
 - [ ] Performance enhancement: not shelling out for channel switching
 - [ ] "Jack" mode - deauth attacks

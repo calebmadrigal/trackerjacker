@@ -1,12 +1,16 @@
 """Looks for and deauths the specified mac_to_deauth or vendor_to_deauth using aircrack-ng.
 
 Be careful with vendor_to_deauth - deauth attack every device by that vendor nearby... theoretically.
+
+Example of how to call:
+    trackerjacker --track --plugin plugin_examples/deauth_attack.py --plugin-config "{'vendor_to_deauth': 'Apple'}"
+
 """
 import subprocess
 
 __author__ = 'Caleb Madrigal'
 __email__ = 'caleb.madrigal@gmail.com'
-__version__ = '0.0.3'
+__version__ = '0.0.4'
 __apiversion__ = 1
 __config__ = {'trigger_cooldown': 1}
 

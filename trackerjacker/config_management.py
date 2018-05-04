@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {'log_path': None,
                   'trigger_cooldown': 30,
                   'channels_to_monitor': None,
                   'channel_switch_scheme': 'default',
-                  'time_per_channel': 2,
+                  'time_per_channel': 0.5,
                   'display_matching_packets': False,
                   'display_all_packets': False,
                   'beep_on_trigger': False}
@@ -63,6 +63,10 @@ def get_arg_parser():
                         help='Access point(s) to track - specified by BSSID; comma separated for multiple')
     parser.add_argument('--channels-to-monitor', type=str, dest='channels_to_monitor',
                         help='Channels to monitor; comma separated for multiple')
+    parser.add_argument('--channel-switch-scheme', type=str, dest='channel_switch_scheme',
+                        help='Options: "round_robin" or "traffic_based"', default='default')
+    parser.add_argument('--time-per-channel', type=float, dest='time_per_channel',
+                        help='Seconds spent on each channel before hopping')
     parser.add_argument('-w', '--time-window', type=int, dest='threshold_window',
                         help='Time window (in seconds) which alert threshold is applied to')
     parser.add_argument('--map-save-interval', type=float, dest='map_save_interval',

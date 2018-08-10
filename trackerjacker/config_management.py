@@ -258,12 +258,6 @@ def build_config(args):
     except ValueError:
         raise TJException('trigger_cooldown must be a number')
 
-    # Only allow track or map mode at once
-    if config['do_track']:
-        config['do_map'] = False
-    if not config['do_track']:
-        config['do_map'] = True
-
     # If we're in track mode and no other threshold info is set, default to a 1 byte data threshold
     if config['do_track']:
         if not config['threshold'] and not config['power']:

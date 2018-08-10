@@ -42,9 +42,13 @@ class Trigger:
 
     def output_report(self):
         descending_order = sorted([(count, vendor) for vendor, count in self.manufacturer_to_count.items()], reverse=True)
+        total_device_count = 0
         with open(REPORT_FILE, 'w') as f:
             for (count, vendor) in descending_order:
                 f.write('{0:8}: {1}\n'.format(count, vendor))
+                total_device_count += count
+
+            f.write('\n{}\nTotal unique devices: {}\n\n'.format('='*100, total_device_count))
 
         print('[!] Report saved to {}'.format(REPORT_FILE))
         self.save_progress()

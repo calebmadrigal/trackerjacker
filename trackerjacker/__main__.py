@@ -150,7 +150,16 @@ class TrackerJacker:
     def process_packet(self, pkt):
         if pkt.haslayer(scapy.Dot11):
             looking_for_specifics_and_none_found = self.aps_to_watch_set or self.devices_to_watch_set
-            frame = dot11_frame.Dot11Frame(pkt, int(self.iface_manager.current_channel), iface=self.iface_manager.iface)
+
+            try:
+                frame = dot11_frame.Dot11Frame(pkt,
+                                               int(self.iface_manager.current_channel),
+                                               iface=self.iface_manager.iface)
+            except Exception as e:
+                # Thank you DEF CON (https://github.com/secdev/scapy/issues/1552)
+                self.logger.warning('Error decoding Dot11Frame: %s', e)
+                return
+
             if self.do_map:
                 self.log_newly_found(frame)
 

@@ -162,7 +162,7 @@ By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all th
 	    ssid: null
 	    vendor: ''
 
-Note that, since this is YAML, you can easily use it as an input for other scripts of your own devising.
+Note that, since this is YAML, you can easily use it as an input for other scripts of your own devising. I have an example script to parse this "YAML DB" here: [parse_trackerjacker_wifi_map.py](https://gist.github.com/calebmadrigal/fdb8855a6d05c87bbb0254a1424ee582).
 
 ### Example: Track mode with trigger command
 

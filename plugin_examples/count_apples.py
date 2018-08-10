@@ -6,7 +6,8 @@ class Trigger:
     def __init__(self):
         self.apples_seen = set()
 
-    def __call__(self, dev_id=None, vendor=None, ssid=None, bssid=None, iface=None, **kwargs):
+    def __call__(self, dev_id=None, vendor=None, ssid=None, bssid=None, iface=None, power=None, **kwargs):
         if vendor and vendor.lower().find('apple') >= 0:
             self.apples_seen |= {dev_id}
-            print('Apple devices seen: {}'.format(len(self.apples_seen)))
+            print('Apple devices seen (power={}): {}, new mac: {}'.format(power, len(self.apples_seen), dev_id))
+

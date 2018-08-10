@@ -37,7 +37,7 @@ Map command:
 
 	trackerjacker -i wlan1337 --map
 
-By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all the nearby WiFi networks and all of their users. Here's an example `wifi_map.yaaml` file:
+By default, this outputs the `wifi_map.yaml` YAML file, which is a map of all the nearby WiFi networks and all of their users. Here's an example `wifi_map.yaml` file:
 	
 	TEST_SSID:
 	  00:10:18:6b:7a:ea:

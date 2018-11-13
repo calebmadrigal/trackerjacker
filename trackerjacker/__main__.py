@@ -73,8 +73,9 @@ class TrackerJacker:
                  trigger_plugin=None,
                  plugin_config=None,
                  trigger_command=None,
-                 trigger_cooldown=30,
-                 beep_on_trigger=False):  # seconds
+                 trigger_cooldown=30,  # seconds
+                 beep_on_trigger=False,
+                 remove_unseen_devices=False): 
 
         self.iface = iface
         self.do_map = do_map
@@ -98,7 +99,7 @@ class TrackerJacker:
             # Try to load map
             self.logger.info('Map output file: %s', self.map_file)
             if os.path.exists(self.map_file):
-                self.dot11_map = dot11_mapper.Dot11Map.load_from_file(self.map_file)
+                self.dot11_map = dot11_mapper.Dot11Map.load_from_file(self.map_file, remove_unseen_devices)
                 if self.dot11_map:
                     self.logger.info('Loaded %d devices and %d ssids from %s',
                                      len(self.dot11_map.devices),
@@ -108,7 +109,7 @@ class TrackerJacker:
                 self.logger.warning('Specified map file not found - creating new map file.')
 
         if not self.dot11_map:
-            self.dot11_map = dot11_mapper.Dot11Map()
+            self.dot11_map = dot11_mapper.Dot11Map(remove_unseen_devices=remove_unseen_devices)
 
         self.dot11_map.window = threshold_window
 

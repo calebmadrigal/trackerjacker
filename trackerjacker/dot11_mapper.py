@@ -29,12 +29,14 @@ def trim_frames_to_window(frames, window, now=None):
 class Dot11Map:
     """Represents the observed state of the 802.11 radio space."""
 
-    def __init__(self, map_data=None):
+    def __init__(self, map_data=None, remove_unseen_devices=False):
         self.lock = threading.RLock()
 
         # Used for determining when to trim frame lists
         self.frame_count_by_device = collections.Counter()
         self.trim_every_num_frames = 50  # empirically-derived
+        self.device_fall_off_window = 60 * 5 # 5 Minute
+        self.remove_unseen_devices = remove_unseen_devices
         self.window = 10  # seconds
 
         # Needed for efficiently determining if there is no ssid known for a given bssid
@@ -181,10 +183,12 @@ class Dot11Map:
         if mac not in self.devices:
             dev_node = {'vendor': self.mac_vendor_db.lookup(mac),
                         'signal': frame.signal_strength,
+                        'last_seen': time.time(),
                         'frames_in': [],
                         'frames_out': []}
             self.devices[mac] = dev_node
         else:
+            self.devices[mac]['last_seen'] = time.time()
             dev_node = self.devices[mac]
 
         dev_node['signal'] = frame.signal_strength
@@ -228,8 +232,14 @@ class Dot11Map:
 
         with self.lock:
             serialized_map = {}
-            dev_map = {mac: self._with_frames_summed(self.devices[mac]) for mac in self.devices}
+            now = time.time()
+            macs_to_remove = set()
 
+            if self.remove_unseen_devices:
+                macs_to_remove = {k for k,v in self.devices.items() if v['last_seen'] < now - self.device_fall_off_window}
+                self.devices = {k:v for k,v in self.devices.items() if k not in macs_to_remove}
+        
+            dev_map = {mac: self._with_frames_summed(self.devices[mac]) for mac in self.devices}
             associated_devices = set()
 
             for ssid in self.ssid_to_access_point:
@@ -239,8 +249,10 @@ class Dot11Map:
 
                 for bssid in self.ssid_to_access_point[ssid]:
                     serialized_map[ssid][bssid] = copy.deepcopy(self.access_points[bssid])
+
                     serialized_map[ssid][bssid]['bytes'] = sum([num_bytes for _, num_bytes in
                                                                 serialized_map[ssid][bssid].pop('frames', ())])
+                    self.access_points[bssid]['devices'] = {mac for mac in self.access_points[bssid]['devices'] if mac not in macs_to_remove}
                     serialized_map[ssid][bssid]['devices'] = {mac: copy.deepcopy(dev_map[mac])
                                                               for mac in self.access_points[bssid]['devices']}
 
@@ -262,7 +274,7 @@ class Dot11Map:
         return dev_node
 
     @staticmethod
-    def load_from_file(file_path):
+    def load_from_file(file_path, remove_unseen_devices=False):
         """Factory function to load a Dot11Map from file_path provided."""
         with open(file_path, 'r') as f:
             yaml_data = f.read()
@@ -272,7 +284,7 @@ class Dot11Map:
 
         # If file is empty, return empty map
         if not map_data:
-            return Dot11Map()
+            return Dot11Map(remove_unseen_devices=remove_unseen_devices)
 
         bssids_associated_with_ssids = set()
         ssid_to_access_point = {}
@@ -324,5 +336,5 @@ class Dot11Map:
             'ssid_to_access_point': ssid_to_access_point,
             'access_points': access_points,
             'devices': devices
-        })
+        }, remove_unseen_devices=remove_unseen_devices)
         return dot11_map

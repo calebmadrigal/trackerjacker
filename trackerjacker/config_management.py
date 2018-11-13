@@ -30,7 +30,8 @@ DEFAULT_CONFIG = {'log_path': None,
                   'time_per_channel': 0.5,
                   'display_matching_packets': False,
                   'display_all_packets': False,
-                  'beep_on_trigger': False}
+                  'beep_on_trigger': False,
+                  'remove_unseen_devices': False}
 
 
 def get_arg_parser():
@@ -41,6 +42,8 @@ def get_arg_parser():
                         help='Map mode - output map to wifi_map.yaml')
     parser.add_argument('--track', action='store_true', dest='do_track',
                         help='Track mode')
+    parser.add_argument('--remove-unseen-devices', action='store_true', dest='remove_unseen_devices',
+                        help='If enabled, map will forget about devices not seen for over five minutes')
     parser.add_argument('--monitor-mode-on', action='store_true', dest='do_enable_monitor_mode',
                         help='Enables monitor mode on the specified interface and exit')
     parser.add_argument('--monitor-mode-off', action='store_true', dest='do_disable_monitor_mode',

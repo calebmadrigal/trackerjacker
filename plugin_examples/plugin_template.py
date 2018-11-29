@@ -1,6 +1,6 @@
 __author__ = 'Caleb Madrigal'
 __email__ = 'caleb.madrigal@gmail.com'
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 __apiversion__ = 1
 __config__ = {'power': -100, 'log_level': 'ERROR', 'trigger_cooldown': 1}
 
@@ -30,7 +30,7 @@ class Trigger:
         self.unique_mac_addrs |= {dev_id}
         print('[!] Total packets: {}, Unique devices: {}'.format(self.packets_seen, len(self.unique_mac_addrs)))
         print('\tdev_id = {}, dev_type = {}, num_bytes = {}, data_threshold = {}, vendor = {}, '
-              'power = {}, power_threshold = {}, bssid = {}, ssid = {}, iface = {}, channel = {}'
+              'power = {}, power_threshold = {}, bssid = {}, ssid = {}, iface = {}, channel = {}, '
               'frame_types = {}, frame = {}'
               .format(dev_id, dev_type, num_bytes, data_threshold, vendor,
                       power, power_threshold, bssid, ssid, iface, channel,

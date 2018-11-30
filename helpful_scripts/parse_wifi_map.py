@@ -7,6 +7,7 @@ def parse_wifi_map(map_path):
 
     wifi_map = yaml.load(data)
     devices = set()
+    associated_devices = set()
 
     for ssid in wifi_map:
         print('ssid = {}'.format(ssid))
@@ -17,9 +18,15 @@ def parse_wifi_map(map_path):
             if 'devices' in bssid_node:
                 for device in bssid_node['devices']:
                     devices |= {device}
-                    print('\t\tdevice = {}'.format(device))
+                    if ssid != '~unassociated_devices':
+                        associated_devices |= {device}
+                        print('\t\tdevice (associated) = {}'.format(device))
+                    else:
+                        print('\t\tdevice = {}'.format(device))
 
-    print('\n\nSSID count: {}, Device count: {}'.format(len(wifi_map), len(devices)))
+    print('\n\nSSID count: {}, Associated device count: {}, Device count: {}'.format(len(wifi_map),
+                                                                                     len(associated_devices),
+                                                                                     len(devices)))
 
 if __name__ == '__main__':
     wifi_map_path = 'wifi_map.yaml'

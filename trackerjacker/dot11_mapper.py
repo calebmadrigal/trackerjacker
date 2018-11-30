@@ -218,11 +218,11 @@ class Dot11Map:
                     f4:f5:d8:2b:9f:f6:
                         signal: -84
                         vendor: Apple
-                        bytes_transfered: 200
+                        bytes: 200
                     00:25:00:ff:94:73:
                         signal: -55
                         vendor: Google, Inc.
-                        bytes_transfered: 138
+                        bytes: 138
             71:29:94:14:8a:1d: ...
         example_ssid_2: ...
 
@@ -259,7 +259,10 @@ class Dot11Map:
                     associated_devices |= set(serialized_map[ssid][bssid]['devices'].keys())
 
             unassociated_devices = set(self.devices.keys()) - associated_devices
-            serialized_map['~unassociated_devices'] = {mac: dev_map[mac] for mac in unassociated_devices}
+            serialized_map['~unassociated_devices'] = {'00:00:00:00:00:00':
+                                                       {'bytes': 0,
+                                                        'devices': {mac: dev_map[mac]
+                                                                    for mac in unassociated_devices}}}
 
             with open(file_path, 'w') as f:
                 pyaml.dump(serialized_map, f, vspacing=[1, 0], safe=True)
@@ -295,11 +298,16 @@ class Dot11Map:
             if ssid == '~unassociated_devices':
                 # ~unassociated_devices is not an SSID, but a special name to denote the list of devices
                 # not associated with any network, so it needs to be processed differently.
-                for mac, dev_node in ssid_entry.items():
-                    dev_node.pop('bytes')
-                    dev_node['frames_out'] = []
-                    dev_node['frames_in'] = []
-                    devices[mac] = dev_node
+                for bssid, ap_node in ssid_entry.items():
+                    # For backward compatibility with version 1.8.8
+                    if 'devices' not in ap_node:
+                        continue
+
+                    for mac, dev_node in ap_node['devices'].items():
+                        dev_node.pop('bytes', None)
+                        dev_node['frames_out'] = []
+                        dev_node['frames_in'] = []
+                        devices[mac] = dev_node
                 continue
 
             unknown_ssid = ssid.startswith('unknown_ssid_')

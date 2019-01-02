@@ -1,5 +1,11 @@
 # trackerjacker
 
+![](https://img.shields.io/github/issues/calebmadrigal/trackerjacker.svg)
+![](https://img.shields.io/github/forks/calebmadrigal/trackerjacker.svg)
+![](https://img.shields.io/github/stars/calebmadrigal/trackerjacker.svg)
+![](https://img.shields.io/github/license/calebmadrigal/trackerjacker.svg)
+[![Rawsec's CyberSecurity Inventory](https://inventory.rawsec.ml/img/badges/Rawsec-inventoried-FF5050_flat.svg)](https://inventory.rawsec.ml/tools.html#trackerjacker)
+
 Like nmap for mapping wifi networks you're not connected to. Maps and tracks wifi networks and devices through raw 802.11 monitoring.  
 
 PyPI page: https://pypi.python.org/pypi/trackerjacker

@@ -18,7 +18,7 @@ class Dot11Tracker:
         devices_to_watch: Dict of macs to watch; In this format -
             {'mac1': 315, "mac2": 512}
             where threshold is the number of bytes which, if seen within threshold_window, will cause an alert
-            and where power is the minumum RSSI power level which will cause an alert when seen for that mac
+            and where power is the minimum RSSI power level which will cause an alert when seen for that mac
             (example usage: to cause an alert when a device is within a certain physical distance).
         aps_to_watch: List of access points in this format - {"ssid1": threshold1, "bssid2": threshold2}
         trigger_plugin: parsed trigger plugin - a dict in the form {'trigger': trigger function, 'api_version': 1}

@@ -265,7 +265,7 @@ class Dot11Map:
                                                                     for mac in unassociated_devices}}}
 
             with open(file_path, 'w') as f:
-                pyaml.dump(serialized_map, f, vspacing=[1, 0], safe=True)
+                pyaml.dump(serialized_map, f, vspacing=[1, 0])
 
     @staticmethod
     def _with_frames_summed(dev_node):

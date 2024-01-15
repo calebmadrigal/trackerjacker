@@ -60,13 +60,10 @@ class Dot11Frame:
 
         if frame.haslayer(scapy.RadioTap):
             # This will be uncommented once this scapy PR is merged: https://github.com/secdev/scapy/pull/1381
-            #try:
-            #    self.signal_strength = frame[scapy.RadioTap].dBm_AntSignal
-            #except AttributeError:
-            #    try:
-            self.signal_strength = -(256-ord(frame.notdecoded[-4:-3]))
-            #    except Exception:
-            #        self.signal_strength = -257
+            try:
+                self.signal_strength = frame[scapy.RadioTap].dBm_AntSignal
+            except AttributeError:
+                self.signal_strength = -257
 
     def frame_type(self):
         """Returns the 802.11 frame type."""

@@ -16,7 +16,7 @@ def get_version():
 def get_readme():
     try:
         import pypandoc
-        readme_data = pypandoc.convert('README.md', 'rst')
+        readme_data = pypandoc.convert_file('README.md', 'rst')
     except(IOError, ImportError):
         readme_data = open('README.md').read()
     return readme_data
@@ -29,6 +29,7 @@ setup(
     version = get_version(),
     description = 'Finds and tracks wifi devices through raw 802.11 monitoring',
     long_description = get_readme(),
+    long_description_content_type='text/x-rst',
     author = 'Caleb Madrigal',
     author_email = 'caleb.madrigal@gmail.com',
     license = 'MIT',

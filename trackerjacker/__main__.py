@@ -282,10 +282,6 @@ def do_simple_tasks_if_specified(args):
 
 
 def main():
-    if not os.getuid() == 0:
-        print('trackerjacker requires r00t!', file=sys.stderr)
-        sys.exit(errno.EPERM)
-
     argparse_args = config_management.get_arg_parser().parse_args()
 
     # Some command-line args specify to just perform a simple task and then exit
@@ -307,6 +303,11 @@ def main():
 
     # Setup logger
     logger = make_logger(config.pop('log_path'), config.pop('log_level'))
+
+    # Any actual trackerjacker usage requires root (monitor mode in scapy requires it)
+    if not os.getuid() == 0:
+        print('trackerjacker requires r00t!', file=sys.stderr)
+        sys.exit(errno.EPERM)
 
     try:
         tj = TrackerJacker(**dict(config, **{'logger': logger}))  # pylint: disable=E1123

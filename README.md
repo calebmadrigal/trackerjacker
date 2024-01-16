@@ -166,9 +166,9 @@ Note that, since this is YAML, you can easily use it as an input for other scrip
 
 ### Example: Track mode with trigger command
 
-Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `-t 4000` (specifying an alert threshold of 4000 bytes) an alert will be triggered.
+Track mode allows you to specify some number of MAC addresses to watch, and if any specific devices exceeds the threshold (in bytes), specified here with the `--threshold 4000` (specifying an alert threshold of 4000 bytes) an alert will be triggered.
 
-    trackerjacker --track -m 3c:2e:ff:31:32:59 --t 4000 --trigger-command "./alert.sh" --channels-to-monitor 10,11,12,44
+    trackerjacker --track -m 3c:2e:ff:31:32:59 --threshold 4000 --trigger-command "./alert.sh" --channels-to-monitor 10,11,12,44
     Using monitor mode interface: wlan1337
     Monitoring channels: {10, 11, 12, 44}
 

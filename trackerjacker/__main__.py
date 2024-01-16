@@ -222,12 +222,12 @@ class TrackerJacker:
                 # macOS
                 if platform.system() == 'Darwin':
                     self.logger.warning('macOS support is pre-alpha - many improvements coming soon')
-                    scapy.sniff(iface=self.iface_manager.iface, monitor=True, prn=self.process_packet, store=0)
+                    scapy.sniff(iface=self.iface_manager.iface, monitor=True, prn=self.process_packet, store=0, count=0)
                     break
                 # linux
                 else:
                     # For versions of scapy that don't provide the exceptions kwarg
-                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0)
+                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, count=0)
                     break
 
             except TJException:

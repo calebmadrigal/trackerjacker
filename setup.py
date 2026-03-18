@@ -28,7 +28,7 @@ setup(
     url = 'https://github.com/calebmadrigal/trackerjacker',
     version = get_version(),
     description = 'Finds and tracks wifi devices through raw 802.11 monitoring',
-    long_description_content_type='text/x-rst',
+    long_description_content_type='text/markdown',
     long_description = get_readme(),
     author = 'Caleb Madrigal',
     author_email = 'caleb@gods.art',

@@ -31,7 +31,7 @@ setup(
     long_description_content_type='text/x-rst',
     long_description = get_readme(),
     author = 'Caleb Madrigal',
-    author_email = 'caleb.madrigal@gmail.com',
+    author_email = 'caleb@gods.art',
     license = 'MIT',
     keywords = ['hacking', 'network', 'wireless', 'packets', 'scapy'],
     install_requires = requirements,

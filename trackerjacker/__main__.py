@@ -33,18 +33,21 @@ LOG_NAME_TO_LEVEL = {'DEBUG': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40, 'CRITI
 def make_logger(log_path=None, log_level_str='INFO'):
     logger = logging.getLogger('trackerjacker')
     formatter = logging.Formatter('%(asctime)s: (%(levelname)s): %(message)s')
+
     if log_path:
         log_handler = logging.FileHandler(log_path)
         log_handler.setFormatter(formatter)
-        # Print errors to stderr if logging to a file
-        stdout_handler = logging.StreamHandler(sys.stderr)
-        stdout_handler.setLevel('ERROR')
-        stdout_handler.setFormatter(logging.Formatter('%(message)s'))
-        logger.addHandler(stdout_handler)
+        logger.addHandler(log_handler)
+
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setLevel(logging.ERROR)
+        stderr_handler.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(stderr_handler)
     else:
         log_handler = logging.StreamHandler(sys.stdout)
         log_handler.setFormatter(logging.Formatter('%(message)s'))
-    logger.addHandler(log_handler)
+        logger.addHandler(log_handler)
+
     log_level = LOG_NAME_TO_LEVEL.get(log_level_str.upper(), 20)
     logger.setLevel(log_level)
     return logger
@@ -119,8 +122,14 @@ class TrackerJacker:
             else:  # track mode
                 channel_switch_scheme = 'traffic_based'
 
+        print(f'devices_to_watch = {devices_to_watch}, aps_to_watch = {aps_to_watch}')
         self.devices_to_watch_set = set([dev['mac'].lower() for dev in devices_to_watch if 'mac' in dev])
         self.aps_to_watch_set = set([ap['bssid'].lower() for ap in aps_to_watch if 'bssid' in ap])
+
+        if len(self.devices_to_watch_set) > 0:
+            print(f'Tracking devices: {self.devices_to_watch_set}')
+        if len(self.aps_to_watch_set) > 0:
+            print(f'Tracking Access Points: {self.aps_to_watch_set}')
 
         if self.do_track:
             # Build trigger hit function
@@ -149,57 +158,60 @@ class TrackerJacker:
                                                                      time_per_channel)
 
     def process_packet(self, pkt):
-        if pkt.haslayer(scapy.Dot11):
-            looking_for_specifics_and_none_found = self.aps_to_watch_set or self.devices_to_watch_set
+        try:
+            if pkt.haslayer(scapy.Dot11):
+                looking_for_specifics_and_none_found = self.aps_to_watch_set or self.devices_to_watch_set
 
-            try:
-                frame = dot11_frame.Dot11Frame(pkt,
-                                               int(self.iface_manager.current_channel),
-                                               iface=self.iface_manager.iface)
-            except Exception as e:
-                # Thank you DEF CON (https://github.com/secdev/scapy/issues/1552)
-                self.logger.warning('Error decoding Dot11Frame: %s', e)
-                return
+                try:
+                    frame = dot11_frame.Dot11Frame(pkt,
+                                                int(self.iface_manager.current_channel),
+                                                iface=self.iface_manager.iface)
+                except Exception as e:
+                    # Thank you DEF CON (https://github.com/secdev/scapy/issues/1552)
+                    self.logger.warning('Error decoding Dot11Frame: %s', e)
+                    return
 
-            if self.do_map:
-                self.log_newly_found(frame)
+                if self.do_map:
+                    self.log_newly_found(frame)
 
-            if self.display_all_packets:
-                print('\t', pkt.summary())
+                if self.display_all_packets:
+                    print('\t', pkt.summary())
 
-            # See if any APs we care about (if we're looking for specific APs)
-            if self.aps_to_watch_set:
-                if frame.bssid not in self.aps_to_watch_set:
-                    looking_for_specifics_and_none_found = False
+                # See if any APs we care about (if we're looking for specific APs)
+                if self.aps_to_watch_set:
+                    if frame.bssid not in self.aps_to_watch_set:
+                        looking_for_specifics_and_none_found = False
 
-            # See if any MACs we care about (if we're looking for specific MACs)
-            if self.devices_to_watch_set:
-                matched_macs = self.devices_to_watch_set & frame.macs
-                if matched_macs:
-                    looking_for_specifics_and_none_found = False
+                # See if any MACs we care about (if we're looking for specific MACs)
+                if self.devices_to_watch_set:
+                    matched_macs = self.devices_to_watch_set & frame.macs
+                    if matched_macs:
+                        looking_for_specifics_and_none_found = False
 
-                    # Display matched packets (if specified)
-                    if self.display_matching_packets and not self.display_all_packets:
-                        print('\t', pkt.summary())
+                        # Display matched packets (if specified)
+                        if self.display_matching_packets and not self.display_all_packets:
+                            print('\t', pkt.summary())
 
-            # If we are looking for specific APs or Devices and none are found, no further processing needed
-            if looking_for_specifics_and_none_found:
-                return
+                # If we are looking for specific APs or Devices and none are found, no further processing needed
+                if looking_for_specifics_and_none_found:
+                    return
 
-            # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
-            # (which is why this isn't under the 'if matched_matcs' block).
-            # Note: we update the map whether do_map is true or false since it's used for tracking; just don't save map
-            self.dot11_map.add_frame(frame)
-            if self.do_map:
-                if time.time() - self.map_last_save >= self.map_save_interval:
-                    self.dot11_map.save_to_file(self.map_file)
-                    self.map_last_save = time.time()
+                # If map mode enabled, do it. Note that we don't exclude non-matching MACs from the mapping
+                # (which is why this isn't under the 'if matched_matcs' block).
+                # Note: we update the map whether do_map is true or false since it's used for tracking; just don't save map
+                self.dot11_map.add_frame(frame)
+                if self.do_map:
+                    if time.time() - self.map_last_save >= self.map_save_interval:
+                        self.dot11_map.save_to_file(self.map_file)
+                        self.map_last_save = time.time()
 
-            if self.do_track:
-                self.dot11_tracker.add_frame(frame, pkt)
+                if self.do_track:
+                    self.dot11_tracker.add_frame(frame, pkt)
 
-            # Update device tracking (for traffic-based)
-            self.iface_manager.add_frame(frame)
+                # Update device tracking (for traffic-based)
+                self.iface_manager.add_frame(frame)
+        except Exception as e:
+            self.logger.debug('Error in process_packet: {e}')
 
     def log_newly_found(self, frame):
         # Log newly-found things

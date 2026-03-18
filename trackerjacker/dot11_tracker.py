@@ -45,7 +45,8 @@ class Dot11Tracker:
         self.last_alerted = {}
 
         # Same as self.arg = arg for every arg (except devices_to_watch and aps_to_watch)
-        self.__dict__.update({k: v for k, v in locals().items() if k != 'aps_to_watch'})
+        #self.__dict__.update({k: v for k, v in locals().items() if k != 'aps_to_watch'})
+        self.__dict__.update({k: v for k, v in locals().items()})
 
         # If no particular things are specified to be watched, assume everything should be watched
         self.track_all = (not aps_to_watch and not devices_to_watch)
@@ -91,7 +92,7 @@ class Dot11Tracker:
                                           frame=frame,
                                           raw_frame=raw_frame)
 
-            if self.power and frame.signal_strength > self.power:
+            if self.power and frame.signal_strength and frame.signal_strength > self.power:
                 self.do_trigger_alert(mac,
                                       'mac',
                                       vendor=dev_node['vendor'],
@@ -288,7 +289,7 @@ class Dot11Tracker:
         elif self.trigger_command:
             try:
                 # Start trigger_command in background process - fire and forget
-                subprocess.Popen(self.trigger_command)
+                subprocess.run(self.trigger_command, shell=True)
             except Exception:
                 raise TJException('Error occurred in trigger command: {}'.format(traceback.format_exc()))
 

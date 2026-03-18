@@ -284,6 +284,11 @@ Note that trackerjacker will automatically switch channels as necessary during n
 * Alfa AWUS052NH Dual-Band 2x 5dBi (high power, 2.4GHz and 5GHz, large, ugly)
 * TP-Link N150 (works well, but not dual band)
 
+## Helpful commands
+
+* `sudo iw reg set US` - In order to be able to access all of the available channels with your wifi adapter, you may need to run this command (or a variant of it).
+* `ifconfig` - To list wifi adapter names.
+
 ## Roadmap
 
 - [x] Hosted in PyPI

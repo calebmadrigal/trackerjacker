@@ -131,7 +131,7 @@ class Dot11Map:
             ap_node = {'bssid': bssid,
                        'ssid': frame.ssid,
                        'vendor': self.mac_vendor_db.lookup(bssid),
-                       'channels': {frame.channel},
+                       'channels': set(),
                        'devices': set(),
                        'frames': []}
             self.access_points[bssid] = ap_node
@@ -163,11 +163,14 @@ class Dot11Map:
         if frame.signal_strength:
             ap_node['signal'] = frame.signal_strength
 
-        # Only associate with channels and devices for data packets since, for example, APs
-        # send beacons on channels that they don't actually communicate on.
+        if frame.advertised_channel:
+            ap_node['channels'] |= {frame.advertised_channel}
+
+        # Data frames do not advertise the AP channel, so use the sniffing channel as a fallback there.
         if frame.frame_type() == dot11_frame.Dot11Frame.DOT11_FRAME_TYPE_DATA:
             ap_node['devices'] |= (frame.macs - MACS_TO_IGNORE - {bssid})
-            ap_node['channels'] |= {frame.channel}
+            if not ap_node['channels']:
+                ap_node['channels'] |= {frame.channel}
 
         ap_node['frames'].append((time.time(), frame.frame_bytes))
 

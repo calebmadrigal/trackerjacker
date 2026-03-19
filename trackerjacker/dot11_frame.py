@@ -15,12 +15,27 @@ class Dot11Frame:
     DOT11_FRAME_TYPE_CONTROL = 1
     DOT11_FRAME_TYPE_DATA = 2
 
+    @staticmethod
+    def _iter_dot11_elements(frame):
+        elt = frame.getlayer(scapy.Dot11Elt)
+        while elt and hasattr(elt, 'ID') and hasattr(elt, 'info'):
+            yield elt
+            elt = elt.payload if hasattr(elt, 'payload') else None
+
+    @classmethod
+    def _get_advertised_channel(cls, frame):
+        for elt in cls._iter_dot11_elements(frame):
+            if elt.ID in (3, 61) and elt.info:
+                return elt.info[0]
+        return None
+
     def __init__(self, frame, channel=0, iface=None):
         self.frame = frame
         self.bssid = None
         self.ssid = None
         self.signal_strength = 0
         self.channel = channel
+        self.advertised_channel = None
         self.iface = iface
         self.frame_bytes = len(frame)
 
@@ -50,6 +65,7 @@ class Dot11Frame:
 
         if (frame.haslayer(scapy.Dot11Elt) and
                 (frame.haslayer(scapy.Dot11Beacon) or frame.haslayer(scapy.Dot11ProbeResp))):
+            self.advertised_channel = self._get_advertised_channel(frame)
 
             try:
                 self.ssid = frame[scapy.Dot11Elt].info.decode().replace('\x00', '[NULL]')

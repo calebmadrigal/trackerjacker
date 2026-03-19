@@ -7,8 +7,10 @@ import time
 import json
 import errno
 import pprint
+import signal
 import logging
 import platform
+import threading
 import traceback
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
@@ -88,6 +90,7 @@ class TrackerJacker:
         self.display_matching_packets = display_matching_packets
         self.display_all_packets = display_all_packets
         self.mac_vendor_db = ieee_mac_vendor_db.MacVendorDB()
+        self.stop_event = threading.Event()
 
         if logger:
             self.logger = logger
@@ -229,18 +232,16 @@ class TrackerJacker:
     def start(self):
         self.logger.debug('Starting monitoring on %s', self.iface_manager.iface)
         self.iface_manager.start()
-        while True:
+        while not self.stop_event.is_set():
             try:
                 # macOS
                 if platform.system() == 'Darwin':
                     self.logger.warning('macOS support is pre-alpha - many improvements coming soon')
-                    scapy.sniff(iface=self.iface_manager.iface, monitor=True, prn=self.process_packet, store=0, count=0)
-                    break
+                    scapy.sniff(iface=self.iface_manager.iface, monitor=True, prn=self.process_packet, store=0, count=0, timeout=1)
                 # linux
                 else:
                     # For versions of scapy that don't provide the exceptions kwarg
-                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, count=0)
-                    break
+                    scapy.sniff(iface=self.iface_manager.iface, prn=self.process_packet, store=0, count=0, timeout=1)
 
             except TJException:
                 raise
@@ -250,6 +251,7 @@ class TrackerJacker:
                 time.sleep(3)
 
     def stop(self):
+        self.stop_event.set()
         self.iface_manager.stop()
 
         if self.do_map:
@@ -323,6 +325,11 @@ def main():
 
     try:
         tj = TrackerJacker(**dict(config, **{'logger': logger}))  # pylint: disable=E1123
+        def handle_sigint(signum, frame):
+            print('Stop requested... stopping...')
+            tj.stop()
+
+        signal.signal(signal.SIGINT, handle_sigint)
         tj.start()
     except TJException as e:
         logger.critical('Error: %s', e)
@@ -330,7 +337,8 @@ def main():
         print('Stopping...')
     finally:
         try:
-            tj.stop()
+            if not tj.stop_event.is_set():
+                tj.stop()
         except UnboundLocalError:
             # Exception was thrown in TrackerJacker initializer, so 'tj' doesn't exist
             pass

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>trackerjacker graph</title>
+    <link rel="stylesheet" href="/static/graph.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>trackerjacker graph</h1>
+          <p>Live topology of access points and high-traffic devices</p>
+        </div>
+        <div class="status-wrap">
+          <span id="status-pill" class="status-pill connecting">connecting</span>
+          <span id="meta-text" class="meta-text">waiting for traffic...</span>
+        </div>
+      </header>
+      <main id="graph-root"></main>
+    </div>
+    <script src="/vendor/cytoscape.min.js"></script>
+    <script src="/static/graph.js"></script>
+  </body>
+  </html>

@@ -64,6 +64,11 @@ class Dot11Tracker:
                 self.ssids_to_watch[ap_identifier] = watch_entry
 
     def add_frame(self, frame, raw_frame):
+        self.notify_plugin_frame(frame, raw_frame)
+
+        if self.trigger_plugin and getattr(self.trigger_plugin['trigger'], 'consume_frame_only', False):
+            return
+
         if self.track_all:
             self.eval_general_mac_trigger(frame.macs, frame, raw_frame)
             self.eval_general_bssid_trigger(frame.bssid, frame, raw_frame)
@@ -72,6 +77,16 @@ class Dot11Tracker:
             self.eval_mac_triggers(frame.macs, frame, raw_frame)
             self.eval_bssid_triggers(frame.bssid, frame, raw_frame)
             self.eval_ssid_triggers(frame.ssid, frame, raw_frame)
+
+    def notify_plugin_frame(self, frame, raw_frame):
+        trigger = self.trigger_plugin['trigger'] if self.trigger_plugin else None
+        if not trigger or not hasattr(trigger, 'consume_frame'):
+            return
+
+        try:
+            trigger.consume_frame(frame=frame, raw_frame=raw_frame, dot11_map=self.dot11_map)
+        except Exception:
+            raise TJException('Error occurred in trigger plugin: {}'.format(traceback.format_exc()))
 
     def eval_general_mac_trigger(self, macs, frame, raw_frame):
         for mac in macs:

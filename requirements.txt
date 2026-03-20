@@ -1,4 +1,5 @@
 scapy>=2.5.0
 pyaml>=17.12.1
 ruamel.yaml>=0.15.35
-
+Flask>=3.0.0,<4.0.0
+flask-sock>=0.7.0,<1.0.0

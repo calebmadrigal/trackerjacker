@@ -2,3 +2,5 @@ include README.md
 include LICENSE
 include requirements.txt
 include trackerjacker/oui.txt
+recursive-include trackerjacker/plugins/graph_assets *.html *.css *.js
+recursive-include third_party/python-wheels *.whl

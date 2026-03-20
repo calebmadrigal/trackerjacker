@@ -1,6 +1,6 @@
 # pylint: disable=C0103, C0111, C0326, W0122
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 with open('requirements.txt', 'r') as f:
     requirements = f.read().splitlines()
@@ -24,7 +24,7 @@ def get_readme():
 
 setup(
     name = 'trackerjacker',
-    packages = ['trackerjacker', 'trackerjacker/plugins'],
+    packages = find_packages(exclude=('tests', 'tests.*')),
     url = 'https://github.com/calebmadrigal/trackerjacker',
     version = get_version(),
     description = 'Finds and tracks wifi devices through raw 802.11 monitoring',
@@ -38,6 +38,10 @@ setup(
     tests_require = requirements,
     test_suite='tests',
     entry_points={'console_scripts': ['trackerjacker = trackerjacker.__main__:main']},
+    package_data={'trackerjacker.plugins': ['graph_assets/index.html',
+                                            'graph_assets/static/*.css',
+                                            'graph_assets/static/*.js',
+                                            'graph_assets/vendor/*.js']},
     include_package_data = True,
     classifiers = [
         'License :: OSI Approved :: MIT License',

@@ -1,6 +1,7 @@
 const statusPill = document.getElementById("status-pill");
 const metaText = document.getElementById("meta-text");
 const graphRoot = document.getElementById("graph-root");
+let hasFitOnce = false;
 
 const cy = cytoscape({
   container: graphRoot,
@@ -14,7 +15,7 @@ const cy = cytoscape({
         "background-color": "#8cc8ff",
         "border-width": 2,
         "border-color": "rgba(255,255,255,0.2)",
-        "label": "data(label)",
+        "label": "data(display_label)",
         "text-wrap": "wrap",
         "text-max-width": "110px",
         "text-valign": "center",
@@ -70,11 +71,35 @@ function apRadius(apNode) {
   return Math.max(70, apNode.data("size") || 70);
 }
 
-function applySnapshot(snapshot) {
-  const nodes = snapshot.elements.nodes || [];
-  const edges = snapshot.elements.edges || [];
-  const apNodes = nodes.filter((node) => node.data.node_type === "ap");
-  const deviceNodes = new Map(nodes.filter((node) => node.data.node_type === "device").map((node) => [node.data.id, node]));
+function hashString(input) {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = ((hash << 5) - hash) + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function stableApOrder(apNodes) {
+  const existingOrder = new Map();
+  cy.nodes('[node_type = "ap"]').forEach((node, index) => existingOrder.set(node.id(), index));
+  return [...apNodes].sort((left, right) => {
+    const leftOrder = existingOrder.has(left.data.id) ? existingOrder.get(left.data.id) : Number.MAX_SAFE_INTEGER;
+    const rightOrder = existingOrder.has(right.data.id) ? existingOrder.get(right.data.id) : Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.data.id.localeCompare(right.data.id);
+  });
+}
+
+function computeNewNodePositions(apNodes, edges) {
+  const width = cy.width();
+  const height = cy.height();
+  const cx = width / 2;
+  const cyMid = height / 2 + 10;
+  const apOrbitX = Math.max(240, width * 0.34);
+  const apOrbitY = Math.max(160, height * 0.28);
+  const positions = {};
+  const orderedAps = stableApOrder(apNodes);
   const groupedEdges = new Map();
 
   edges.forEach((edge) => {
@@ -83,38 +108,84 @@ function applySnapshot(snapshot) {
     groupedEdges.get(apId).push(edge);
   });
 
-  const width = cy.width();
-  const height = cy.height();
-  const cx = width / 2;
-  const cyMid = height / 2 + 10;
-  const apOrbitX = Math.max(240, width * 0.34);
-  const apOrbitY = Math.max(160, height * 0.28);
-  const positions = {};
+  orderedAps.forEach((apNode, index) => {
+    const existing = cy.getElementById(apNode.data.id);
+    let apPosition = existing.nonempty() ? existing.position() : null;
+    if (!apPosition || (apPosition.x === 0 && apPosition.y === 0)) {
+      const angle = (Math.PI * 2 * index) / Math.max(1, orderedAps.length) - Math.PI / 2;
+      apPosition = {
+        x: cx + Math.cos(angle) * apOrbitX,
+        y: cyMid + Math.sin(angle) * apOrbitY,
+      };
+    }
+    positions[apNode.data.id] = apPosition;
 
-  apNodes.forEach((apNode, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(1, apNodes.length) - Math.PI / 2;
-    const apX = cx + Math.cos(angle) * apOrbitX;
-    const apY = cyMid + Math.sin(angle) * apOrbitY;
-    positions[apNode.data.id] = { x: apX, y: apY };
-
-    const apEdges = (groupedEdges.get(apNode.data.id) || []).slice(0, 12);
-    const radius = apRadius({ data: (key) => apNode.data[key] }) + 90;
+    const apEdges = [...(groupedEdges.get(apNode.data.id) || [])].sort((left, right) =>
+      left.data.target.localeCompare(right.data.target)
+    );
     apEdges.forEach((edge, edgeIndex) => {
-      const devNode = deviceNodes.get(edge.data.target);
-      if (!devNode) return;
-      const deviceAngle = angle + ((edgeIndex - (apEdges.length - 1) / 2) * 0.42);
-      const orbit = radius + powerRadius(devNode.data.power);
-      positions[devNode.data.id] = {
-        x: apX + Math.cos(deviceAngle) * orbit,
-        y: apY + Math.sin(deviceAngle) * orbit,
+      const existingDevice = cy.getElementById(edge.data.target);
+      if (existingDevice.nonempty()) {
+        positions[edge.data.target] = existingDevice.position();
+        return;
+      }
+
+      const baseAngle = (hashString(edge.data.target) % 360) * (Math.PI / 180);
+      const angleOffset = ((edgeIndex % 5) - 2) * 0.16;
+      const orbit = apRadius({ data: (key) => apNode.data[key] }) + 92 + (edgeIndex * 14);
+      positions[edge.data.target] = {
+        x: apPosition.x + Math.cos(baseAngle + angleOffset) * orbit,
+        y: apPosition.y + Math.sin(baseAngle + angleOffset) * orbit,
       };
     });
   });
 
-  cy.elements().remove();
-  cy.add(nodes.map((node) => ({ ...node, position: positions[node.data.id] || { x: cx, y: cyMid } })));
-  cy.add(edges);
-  cy.layout({ name: "preset", fit: true, padding: 50, animate: false }).run();
+  return positions;
+}
+
+function applySnapshot(snapshot) {
+  const nodes = snapshot.elements.nodes || [];
+  const edges = snapshot.elements.edges || [];
+  const nodeIds = new Set(nodes.map((node) => node.data.id));
+  const edgeIds = new Set(edges.map((edge) => edge.data.id));
+  const apNodes = nodes.filter((node) => node.data.node_type === "ap");
+  const positions = computeNewNodePositions(apNodes, edges);
+
+  cy.batch(() => {
+    cy.nodes().forEach((node) => {
+      if (!nodeIds.has(node.id())) {
+        node.remove();
+      }
+    });
+    cy.edges().forEach((edge) => {
+      if (!edgeIds.has(edge.id())) {
+        edge.remove();
+      }
+    });
+
+    nodes.forEach((nodeData) => {
+      const existing = cy.getElementById(nodeData.data.id);
+      if (existing.nonempty()) {
+        existing.data(nodeData.data);
+      } else {
+        cy.add({ ...nodeData, position: positions[nodeData.data.id] || { x: cy.width() / 2, y: cy.height() / 2 } });
+      }
+    });
+
+    edges.forEach((edgeData) => {
+      const existing = cy.getElementById(edgeData.data.id);
+      if (existing.nonempty()) {
+        existing.data(edgeData.data);
+      } else {
+        cy.add(edgeData);
+      }
+    });
+  });
+
+  if (!hasFitOnce) {
+    cy.fit(cy.elements(), 50);
+    hasFitOnce = true;
+  }
 
   liveEdges = cy.edges().toArray();
   metaText.textContent = `${apNodes.length} access points, ${nodes.length - apNodes.length} devices, ${snapshot.window_seconds}s traffic window`;
@@ -155,11 +226,10 @@ function connect() {
 }
 
 window.addEventListener("resize", () => {
-  const currentElements = {
-    nodes: cy.nodes().map((node) => ({ data: node.data() })),
-    edges: cy.edges().map((edge) => ({ data: edge.data() })),
-  };
-  applySnapshot({ elements: currentElements, window_seconds: "current" });
+  cy.resize();
+  if (hasFitOnce) {
+    cy.fit(cy.elements(), 50);
+  }
 });
 
 connect();

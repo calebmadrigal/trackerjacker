@@ -49,6 +49,12 @@ def format_label(primary, fallback):
     return 'Unknown'
 
 
+def format_device_label(mac, vendor):
+    if vendor:
+        return '{}\n{}'.format(mac, vendor)
+    return mac
+
+
 class GraphState:
     def __init__(self, traffic_window=20, stale_seconds=45, max_access_points=8, max_devices_per_ap=6):
         self.traffic_window = float(traffic_window)
@@ -179,6 +185,7 @@ class GraphState:
                         'id': bssid,
                         'node_type': 'ap',
                         'label': format_label(ap_state.get('ssid'), ap_state.get('vendor')),
+                        'display_label': format_label(ap_state.get('ssid'), ap_state.get('vendor')),
                         'subtitle': bssid,
                         'traffic': ap_scores.get(bssid, 0),
                         'power': ap_state.get('power') or -100,
@@ -196,7 +203,8 @@ class GraphState:
                     'data': {
                         'id': mac,
                         'node_type': 'device',
-                        'label': format_label(dev_state.get('vendor'), mac),
+                        'label': mac,
+                        'display_label': format_device_label(mac, dev_state.get('vendor')),
                         'subtitle': mac,
                         'traffic': dev_score,
                         'power': dev_state.get('power') or -100,

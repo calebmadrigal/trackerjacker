@@ -66,7 +66,8 @@ class GraphPluginTest(unittest.TestCase):
         self.assertEqual(2, len(snapshot['elements']['nodes']))
         self.assertEqual(1, len(snapshot['elements']['edges']))
         self.assertEqual('lab', snapshot['elements']['nodes'][0]['data']['label'])
-        self.assertEqual('Apple', snapshot['elements']['nodes'][1]['data']['label'])
+        self.assertEqual('11:22:33:44:55:66', snapshot['elements']['nodes'][1]['data']['label'])
+        self.assertEqual('11:22:33:44:55:66\nApple', snapshot['elements']['nodes'][1]['data']['display_label'])
 
     def test_dot11_tracker_can_short_circuit_for_frame_consumers(self):
         plugin = StubPlugin()

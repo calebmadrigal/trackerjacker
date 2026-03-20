@@ -35,7 +35,7 @@ def parse_trigger_plugin(trigger_path, plugin_config, parse_only=False):
     # Open and exec plugin definitions
     with open(trigger_path, 'r') as f:
         trigger_code = f.read()
-    trigger_vars = {}
+    trigger_vars = {'__file__': trigger_path, '__name__': '__trackerjacker_plugin__'}
     exec(trigger_code, trigger_vars)
 
     # Get trigger data

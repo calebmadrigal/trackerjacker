@@ -6,24 +6,32 @@ let hasFitOnce = false;
 const cy = cytoscape({
   container: graphRoot,
   elements: [],
+  minZoom: 0.35,
+  maxZoom: 2.6,
+  userZoomingEnabled: true,
+  userPanningEnabled: true,
+  boxSelectionEnabled: false,
   style: [
     {
       selector: "node",
       style: {
-        "width": "data(size)",
-        "height": "data(size)",
+        "shape": "rectangle",
+        "width": "data(width)",
+        "height": "data(height)",
         "background-color": "#8cc8ff",
         "border-width": 2,
         "border-color": "rgba(255,255,255,0.2)",
         "label": "data(display_label)",
         "text-wrap": "wrap",
-        "text-max-width": "110px",
+        "text-max-width": "145px",
         "text-valign": "center",
         "text-halign": "center",
-        "color": "#e7f7ff",
+        "color": "#031018",
         "font-size": 11,
+        "line-height": 1.15,
         "font-family": "Avenir Next, Segoe UI, sans-serif",
         "overlay-opacity": 0,
+        "padding": "6px",
       },
     },
     {
@@ -68,7 +76,7 @@ function powerRadius(power) {
 }
 
 function apRadius(apNode) {
-  return Math.max(70, apNode.data("size") || 70);
+  return Math.max(78, ((apNode.data("width") || 140) / 2) + 18);
 }
 
 function hashString(input) {
@@ -124,23 +132,86 @@ function computeNewNodePositions(apNodes, edges) {
       left.data.target.localeCompare(right.data.target)
     );
     apEdges.forEach((edge, edgeIndex) => {
-      const existingDevice = cy.getElementById(edge.data.target);
-      if (existingDevice.nonempty()) {
-        positions[edge.data.target] = existingDevice.position();
-        return;
-      }
-
       const baseAngle = (hashString(edge.data.target) % 360) * (Math.PI / 180);
       const angleOffset = ((edgeIndex % 5) - 2) * 0.16;
       const orbit = apRadius({ data: (key) => apNode.data[key] }) + 92 + (edgeIndex * 14);
-      positions[edge.data.target] = {
+      const targetPosition = {
         x: apPosition.x + Math.cos(baseAngle + angleOffset) * orbit,
         y: apPosition.y + Math.sin(baseAngle + angleOffset) * orbit,
       };
+      const existingDevice = cy.getElementById(edge.data.target);
+      if (existingDevice.nonempty()) {
+        const current = existingDevice.position();
+        positions[edge.data.target] = {
+          x: current.x + ((targetPosition.x - current.x) * 0.18),
+          y: current.y + ((targetPosition.y - current.y) * 0.18),
+        };
+      } else {
+        positions[edge.data.target] = targetPosition;
+      }
     });
   });
 
+  relaxDeviceOverlaps(positions, apNodes, edges);
   return positions;
+}
+
+function relaxDeviceOverlaps(positions, apNodes, edges) {
+  const apIds = new Set(apNodes.map((node) => node.data.id));
+  const deviceIds = Object.keys(positions).filter((id) => !apIds.has(id));
+  const deviceToAp = new Map(edges.map((edge) => [edge.data.target, edge.data.source]));
+
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    for (let i = 0; i < deviceIds.length; i += 1) {
+      const leftId = deviceIds[i];
+      const left = positions[leftId];
+      if (!left) continue;
+
+      for (let j = i + 1; j < deviceIds.length; j += 1) {
+        const rightId = deviceIds[j];
+        const right = positions[rightId];
+        if (!right) continue;
+
+        const dx = right.x - left.x;
+        const dy = right.y - left.y;
+        const distance = Math.sqrt((dx * dx) + (dy * dy)) || 0.001;
+        const minDistance = 96;
+        if (distance >= minDistance) continue;
+
+        const push = (minDistance - distance) / 2;
+        const pushX = (dx / distance) * push;
+        const pushY = (dy / distance) * push;
+
+        left.x -= pushX;
+        left.y -= pushY;
+        right.x += pushX;
+        right.y += pushY;
+      }
+    }
+
+    deviceIds.forEach((deviceId) => {
+      const apId = deviceToAp.get(deviceId);
+      const apPosition = apId ? positions[apId] : null;
+      const devicePosition = positions[deviceId];
+      if (!apPosition || !devicePosition) return;
+
+      const dx = devicePosition.x - apPosition.x;
+      const dy = devicePosition.y - apPosition.y;
+      const distance = Math.sqrt((dx * dx) + (dy * dy)) || 0.001;
+      const minOrbit = 126;
+      const maxOrbit = 320;
+
+      if (distance < minOrbit) {
+        const scale = minOrbit / distance;
+        devicePosition.x = apPosition.x + (dx * scale);
+        devicePosition.y = apPosition.y + (dy * scale);
+      } else if (distance > maxOrbit) {
+        const scale = maxOrbit / distance;
+        devicePosition.x = apPosition.x + (dx * scale);
+        devicePosition.y = apPosition.y + (dy * scale);
+      }
+    });
+  }
 }
 
 function applySnapshot(snapshot) {

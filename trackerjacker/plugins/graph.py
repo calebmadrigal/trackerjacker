@@ -55,6 +55,14 @@ def format_device_label(mac, vendor):
     return mac
 
 
+def abbreviate_text(value, max_length=20):
+    if not value:
+        return 'Unknown'
+    if len(value) <= max_length:
+        return value
+    return '{}...'.format(value[:max_length - 3])
+
+
 class GraphState:
     def __init__(self, traffic_window=20, stale_seconds=45, max_access_points=8, max_devices_per_ap=6):
         self.traffic_window = float(traffic_window)
@@ -185,12 +193,14 @@ class GraphState:
                         'id': bssid,
                         'node_type': 'ap',
                         'label': format_label(ap_state.get('ssid'), ap_state.get('vendor')),
-                        'display_label': format_label(ap_state.get('ssid'), ap_state.get('vendor')),
+                        'display_label': abbreviate_text(format_label(ap_state.get('ssid'), ap_state.get('vendor'))),
                         'subtitle': bssid,
                         'traffic': ap_scores.get(bssid, 0),
                         'power': ap_state.get('power') or -100,
                         'channels': ', '.join(str(channel) for channel in ap_state.get('channels', ())),
                         'size': clamp(70 + (ap_scores.get(bssid, 0) / 25000.0), 70, 150),
+                        'width': clamp(128 + len(abbreviate_text(format_label(ap_state.get('ssid'), ap_state.get('vendor')))) * 3, 128, 210),
+                        'height': 72,
                     }
                 })
 
@@ -204,11 +214,16 @@ class GraphState:
                         'id': mac,
                         'node_type': 'device',
                         'label': mac,
-                        'display_label': format_device_label(mac, dev_state.get('vendor')),
+                        'display_label': '{}\n{}'.format(
+                            abbreviate_text(mac, max_length=20),
+                            abbreviate_text(dev_state.get('vendor') or 'Unknown', max_length=20),
+                        ),
                         'subtitle': mac,
                         'traffic': dev_score,
                         'power': dev_state.get('power') or -100,
                         'size': clamp(28 + ((dev_state.get('power') or -100) + 100) * 0.95, 24, 78),
+                        'width': 170,
+                        'height': clamp(44 + ((dev_state.get('power') or -100) + 100) * 0.33, 44, 82),
                     }
                 })
 

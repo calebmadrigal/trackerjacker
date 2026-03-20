@@ -28,10 +28,10 @@ class StubFrame:
 class StubMap:
     def __init__(self):
         self.ap_nodes = {
-            'aa:bb:cc:dd:ee:ff': {'ssid': 'lab', 'vendor': 'Ubiquiti', 'channels': {6}},
+            'aa:bb:cc:dd:ee:ff': {'ssid': 'lab-network-name-that-is-long', 'vendor': 'Ubiquiti', 'channels': {6}},
         }
         self.dev_nodes = {
-            '11:22:33:44:55:66': {'vendor': 'Apple', 'signal': -45},
+            '11:22:33:44:55:66': {'vendor': 'Apple Device Holdings Incorporated', 'signal': -45},
         }
 
     def get_ap_by_bssid(self, bssid):
@@ -65,9 +65,10 @@ class GraphPluginTest(unittest.TestCase):
 
         self.assertEqual(2, len(snapshot['elements']['nodes']))
         self.assertEqual(1, len(snapshot['elements']['edges']))
-        self.assertEqual('lab', snapshot['elements']['nodes'][0]['data']['label'])
+        self.assertEqual('lab-network-name-that-is-long', snapshot['elements']['nodes'][0]['data']['label'])
+        self.assertEqual('lab-network-name-...', snapshot['elements']['nodes'][0]['data']['display_label'])
         self.assertEqual('11:22:33:44:55:66', snapshot['elements']['nodes'][1]['data']['label'])
-        self.assertEqual('11:22:33:44:55:66\nApple', snapshot['elements']['nodes'][1]['data']['display_label'])
+        self.assertEqual('11:22:33:44:55:66\nApple Device Hold...', snapshot['elements']['nodes'][1]['data']['display_label'])
 
     def test_dot11_tracker_can_short_circuit_for_frame_consumers(self):
         plugin = StubPlugin()

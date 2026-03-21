@@ -18,7 +18,7 @@ from werkzeug.serving import make_server
 from trackerjacker.common import MACS_TO_IGNORE
 
 __author__ = 'Caleb Madrigal'
-__email__ = 'caleb.madrigal@gmail.com'
+__email__ = 'caleb@gods.art'
 __version__ = '0.1.0'
 __apiversion__ = 1
 __config__ = {
@@ -336,7 +336,7 @@ class Trigger:
     consume_frame_only = True
 
     def __init__(self, host='127.0.0.1', port=8765, snapshot_interval=0.5, traffic_window=20,
-                 stale_seconds=45, max_access_points=8, max_devices_per_ap=6, open_browser=False):
+                 stale_seconds=300, max_access_points=8, max_devices_per_ap=6, open_browser=False):
         self.graph_state = GraphState(traffic_window=traffic_window,
                                       stale_seconds=stale_seconds,
                                       max_access_points=max_access_points,

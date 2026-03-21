@@ -1,7 +1,7 @@
 const statusPill = document.getElementById("status-pill");
 const metaText = document.getElementById("meta-text");
 const graphRoot = document.getElementById("graph-root");
-let hasFitOnce = false;
+let lastAutoFitBounds = null;
 
 const cy = cytoscape({
   container: graphRoot,
@@ -253,13 +253,35 @@ function applySnapshot(snapshot) {
     });
   });
 
-  if (!hasFitOnce) {
-    cy.fit(cy.elements(), 50);
-    hasFitOnce = true;
-  }
+  autoFitIfNeeded();
 
   liveEdges = cy.edges().toArray();
   metaText.textContent = `${apNodes.length} access points, ${nodes.length - apNodes.length} devices, ${snapshot.window_seconds}s traffic window`;
+}
+
+function autoFitIfNeeded(force = false) {
+  if (cy.elements().length === 0) {
+    return;
+  }
+
+  const bounds = cy.elements().boundingBox();
+  const nextBounds = {
+    x1: Math.round(bounds.x1),
+    y1: Math.round(bounds.y1),
+    x2: Math.round(bounds.x2),
+    y2: Math.round(bounds.y2),
+  };
+
+  const changed = !lastAutoFitBounds ||
+    Math.abs(lastAutoFitBounds.x1 - nextBounds.x1) > 20 ||
+    Math.abs(lastAutoFitBounds.y1 - nextBounds.y1) > 20 ||
+    Math.abs(lastAutoFitBounds.x2 - nextBounds.x2) > 20 ||
+    Math.abs(lastAutoFitBounds.y2 - nextBounds.y2) > 20;
+
+  if (force || changed) {
+    cy.fit(cy.elements(), 50);
+    lastAutoFitBounds = nextBounds;
+  }
 }
 
 function animateEdges() {
@@ -298,9 +320,7 @@ function connect() {
 
 window.addEventListener("resize", () => {
   cy.resize();
-  if (hasFitOnce) {
-    cy.fit(cy.elements(), 50);
-  }
+  autoFitIfNeeded(true);
 });
 
 connect();

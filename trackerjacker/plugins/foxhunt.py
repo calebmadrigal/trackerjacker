@@ -4,7 +4,7 @@ import heapq
 import curses
 
 __author__ = 'Caleb Madrigal'
-__email__ = 'caleb.madrigal@gmail.com'
+__email__ = 'caleb@gods.art'
 __version__ = '0.0.6'
 __apiversion__ = 1
 __config__ = {'power': -100, 'log_level': 'ERROR', 'trigger_cooldown': 1}

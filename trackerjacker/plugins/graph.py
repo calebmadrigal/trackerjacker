@@ -24,7 +24,6 @@ __apiversion__ = 1
 __config__ = {
     'threshold': 1,
     'trigger_cooldown': 0,
-    'log_level': 'ERROR',
     'channel_switch_scheme': 'traffic_based',
     'time_per_channel': 0.35,
 }

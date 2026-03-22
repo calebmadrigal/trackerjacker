@@ -69,6 +69,7 @@ const cy = cytoscape({
 
 let liveEdges = [];
 let edgeAnimationTick = 0;
+let activeLayout = null;
 
 function powerRadius(power) {
   if (power == null) return 40;
@@ -109,7 +110,6 @@ function computeNewNodePositions(nodes, apNodes, edges) {
   const positions = {};
   const orderedAps = stableApOrder(apNodes);
   const groupedEdges = new Map();
-  const nodeById = new Map(nodes.map((node) => [node.data.id, node.data]));
 
   edges.forEach((edge) => {
     const apId = edge.data.source;
@@ -142,82 +142,57 @@ function computeNewNodePositions(nodes, apNodes, edges) {
       };
       const existingDevice = cy.getElementById(edge.data.target);
       if (existingDevice.nonempty()) {
-        const current = existingDevice.position();
-        positions[edge.data.target] = {
-          x: current.x + ((targetPosition.x - current.x) * 0.18),
-          y: current.y + ((targetPosition.y - current.y) * 0.18),
-        };
+        positions[edge.data.target] = existingDevice.position();
       } else {
         positions[edge.data.target] = targetPosition;
       }
     });
   });
-
-  relaxDeviceOverlaps(positions, nodeById, apNodes, edges);
   return positions;
 }
 
-function relaxDeviceOverlaps(positions, nodeById, apNodes, edges) {
-  const apIds = new Set(apNodes.map((node) => node.data.id));
-  const deviceIds = Object.keys(positions).filter((id) => !apIds.has(id));
-  const deviceToAp = new Map(edges.map((edge) => [edge.data.target, edge.data.source]));
-
-  for (let iteration = 0; iteration < 20; iteration += 1) {
-    for (let i = 0; i < deviceIds.length; i += 1) {
-      const leftId = deviceIds[i];
-      const left = positions[leftId];
-      if (!left) continue;
-
-      for (let j = i + 1; j < deviceIds.length; j += 1) {
-        const rightId = deviceIds[j];
-        const right = positions[rightId];
-        if (!right) continue;
-
-        const dx = right.x - left.x;
-        const dy = right.y - left.y;
-        const leftNode = nodeById.get(leftId) || {};
-        const rightNode = nodeById.get(rightId) || {};
-        const minDx = (((leftNode.width || 170) + (rightNode.width || 170)) / 2) + 10;
-        const minDy = (((leftNode.height || 62) + (rightNode.height || 62)) / 2) + 10;
-        const overlapX = minDx - Math.abs(dx);
-        const overlapY = minDy - Math.abs(dy);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-
-        if (overlapX < overlapY) {
-          const pushX = overlapX / 2 * (dx >= 0 ? 1 : -1);
-          left.x -= pushX;
-          right.x += pushX;
-        } else {
-          const pushY = overlapY / 2 * (dy >= 0 ? 1 : -1);
-          left.y -= pushY;
-          right.y += pushY;
-        }
-      }
-    }
-
-    deviceIds.forEach((deviceId) => {
-      const apId = deviceToAp.get(deviceId);
-      const apPosition = apId ? positions[apId] : null;
-      const devicePosition = positions[deviceId];
-      if (!apPosition || !devicePosition) return;
-
-      const dx = devicePosition.x - apPosition.x;
-      const dy = devicePosition.y - apPosition.y;
-      const distance = Math.sqrt((dx * dx) + (dy * dy)) || 0.001;
-      const minOrbit = 96;
-      const maxOrbit = 220;
-
-      if (distance < minOrbit) {
-        const scale = minOrbit / distance;
-        devicePosition.x = apPosition.x + (dx * scale);
-        devicePosition.y = apPosition.y + (dy * scale);
-      } else if (distance > maxOrbit) {
-        const scale = maxOrbit / distance;
-        devicePosition.x = apPosition.x + (dx * scale);
-        devicePosition.y = apPosition.y + (dy * scale);
-      }
-    });
+function runForceLayout() {
+  if (activeLayout && typeof activeLayout.stop === "function") {
+    activeLayout.stop();
   }
+
+  const apNodes = cy.nodes('[node_type = "ap"]');
+  const deviceNodes = cy.nodes('[node_type = "device"]');
+
+  apNodes.lock();
+  deviceNodes.unlock();
+
+  activeLayout = cy.layout({
+    name: "cose",
+    animate: false,
+    fit: false,
+    randomize: false,
+    padding: 30,
+    componentSpacing: 80,
+    nodeOverlap: 22,
+    idealEdgeLength(edge) {
+      return edge.data("traffic") > 0 ? 95 : 75;
+    },
+    edgeElasticity(edge) {
+      return edge.data("traffic") > 0 ? 70 : 120;
+    },
+    nestingFactor: 0.9,
+    gravity: 0.2,
+    numIter: 350,
+    initialTemp: 80,
+    coolingFactor: 0.92,
+    minTemp: 1.0,
+    nodeRepulsion(node) {
+      if (node.data("node_type") === "ap") {
+        return 900000;
+      }
+      const width = node.data("width") || 170;
+      const height = node.data("height") || 62;
+      return 220000 + (width * height * 18);
+    },
+  });
+
+  activeLayout.run();
 }
 
 function applySnapshot(snapshot) {
@@ -259,6 +234,7 @@ function applySnapshot(snapshot) {
     });
   });
 
+  runForceLayout();
   autoFitIfNeeded();
 
   liveEdges = cy.edges().toArray();

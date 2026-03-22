@@ -2,7 +2,6 @@ const statusPill = document.getElementById("status-pill");
 const metaText = document.getElementById("meta-text");
 const graphRoot = document.getElementById("graph-root");
 let lastAutoFitBounds = null;
-const ME_NODE_ID = "__me__";
 
 const cy = cytoscape({
   container: graphRoot,
@@ -52,20 +51,6 @@ const cy = cytoscape({
       },
     },
     {
-      selector: 'node[node_type = "me"]',
-      style: {
-        "shape": "ellipse",
-        "width": 82,
-        "height": 82,
-        "background-color": "#ff5d5d",
-        "border-color": "rgba(255,120,120,0.85)",
-        "border-width": 3,
-        "font-size": 18,
-        "font-weight": 800,
-        "color": "#200303",
-      },
-    },
-    {
       selector: "edge",
       style: {
         "width": "mapData(traffic, 0, 120000, 1, 7)",
@@ -98,14 +83,6 @@ function stableApOrder(apNodes) {
   return [...apNodes].sort((left, right) => left.data.id.localeCompare(right.data.id));
 }
 
-function mapPowerToRadius(power, minRadius, maxRadius) {
-  if (power == null) {
-    return maxRadius * 0.82;
-  }
-  const normalized = Math.max(0, Math.min(1, (Math.abs(power) - 25) / 70));
-  return minRadius + (normalized * (maxRadius - minRadius));
-}
-
 function smoothPosition(current, target, factor) {
   if (!current) {
     return target;
@@ -118,12 +95,11 @@ function smoothPosition(current, target, factor) {
 
 function computeNewNodePositions(nodes, apNodes, edges) {
   const width = cy.width();
-  const height = cy.height();
-  const center = { x: width / 2, y: height / 2 + 8 };
-  const apMinRadius = 135;
-  const apMaxRadius = Math.max(210, Math.min(width, height) * 0.34);
-  const deviceLocalMin = 78;
-  const deviceLocalMax = 126;
+  const topY = 120;
+  const firstDeviceRowY = 265;
+  const deviceRowGap = 110;
+  const deviceColGap = 205;
+  const apMinGap = 240;
   const positions = {};
   const orderedAps = stableApOrder(apNodes);
   const groupedEdges = new Map();
@@ -135,59 +111,55 @@ function computeNewNodePositions(nodes, apNodes, edges) {
     groupedEdges.get(apId).push(edge);
   });
 
-  positions[ME_NODE_ID] = center;
+  const apCount = Math.max(1, orderedAps.length);
+  const apGap = Math.max(apMinGap, Math.min(330, width / apCount));
+  const apRowWidth = apGap * Math.max(0, apCount - 1);
+  const apStartX = (width / 2) - (apRowWidth / 2);
 
   orderedAps.forEach((apNode, index) => {
     const existing = cy.getElementById(apNode.data.id);
-    const stableAngle = ((hashString(apNode.data.id) % 360) * Math.PI / 180) - Math.PI / 2;
-    const apRadius = mapPowerToRadius(apNode.data.power, apMinRadius, apMaxRadius);
     const apTarget = {
-      x: center.x + Math.cos(stableAngle) * apRadius,
-      y: center.y + Math.sin(stableAngle) * apRadius,
+      x: apStartX + (index * apGap),
+      y: topY,
     };
-    const apPosition = smoothPosition(existing.nonempty() ? existing.position() : null, apTarget, 0.22);
+    const apPosition = smoothPosition(existing.nonempty() ? existing.position() : null, apTarget, 0.16);
     positions[apNode.data.id] = apPosition;
 
     const apEdges = [...(groupedEdges.get(apNode.data.id) || [])].sort((left, right) =>
       left.data.target.localeCompare(right.data.target)
     );
+
+    const columns = apEdges.length > 4 ? 2 : 1;
+    const rows = Math.ceil(apEdges.length / columns);
+    const blockWidth = (columns - 1) * deviceColGap;
+    const blockStartX = apPosition.x - (blockWidth / 2);
+
     apEdges.forEach((edge, edgeIndex) => {
-      const deviceData = nodeById.get(edge.data.target) || {};
-      const baseAngle = stableAngle + ((((hashString(edge.data.target) % 120) - 60) * Math.PI) / 180);
-      const angleOffset = ((edgeIndex % 5) - 2) * 0.12;
-      const localOrbit = mapPowerToRadius(deviceData.power, deviceLocalMin, deviceLocalMax);
-      const localTarget = {
-        x: apPosition.x + Math.cos(baseAngle + angleOffset) * localOrbit,
-        y: apPosition.y + Math.sin(baseAngle + angleOffset) * localOrbit,
-      };
-      const centerRadius = mapPowerToRadius(deviceData.power, apMinRadius + 28, apMaxRadius + 34);
-      const centerTarget = {
-        x: center.x + Math.cos(baseAngle) * centerRadius,
-        y: center.y + Math.sin(baseAngle) * centerRadius,
-      };
+      const col = edgeIndex % columns;
+      const row = Math.floor(edgeIndex / columns);
       const targetPosition = {
-        x: (localTarget.x * 0.72) + (centerTarget.x * 0.28),
-        y: (localTarget.y * 0.72) + (centerTarget.y * 0.28),
+        x: blockStartX + (col * deviceColGap),
+        y: firstDeviceRowY + (row * deviceRowGap),
       };
       const existingDevice = cy.getElementById(edge.data.target);
       positions[edge.data.target] = smoothPosition(
         existingDevice.nonempty() ? existingDevice.position() : null,
         targetPosition,
-        0.18,
+        0.22,
       );
     });
   });
 
-  relaxDeviceOverlaps(positions, nodeById, center, orderedAps, edges);
+  relaxDeviceOverlaps(positions, nodeById, orderedAps, edges);
   return positions;
 }
 
-function relaxDeviceOverlaps(positions, nodeById, center, apNodes, edges) {
+function relaxDeviceOverlaps(positions, nodeById, apNodes, edges) {
   const apIds = new Set(apNodes.map((node) => node.data.id));
-  const deviceIds = Object.keys(positions).filter((id) => !apIds.has(id) && id !== ME_NODE_ID);
+  const deviceIds = Object.keys(positions).filter((id) => !apIds.has(id));
   const deviceToAp = new Map(edges.map((edge) => [edge.data.target, edge.data.source]));
 
-  for (let iteration = 0; iteration < 22; iteration += 1) {
+  for (let iteration = 0; iteration < 16; iteration += 1) {
     for (let i = 0; i < deviceIds.length; i += 1) {
       const leftId = deviceIds[i];
       const left = positions[leftId];
@@ -224,58 +196,17 @@ function relaxDeviceOverlaps(positions, nodeById, center, apNodes, edges) {
       const apId = deviceToAp.get(deviceId);
       const apPosition = apId ? positions[apId] : null;
       const devicePosition = positions[deviceId];
-      const deviceData = nodeById.get(deviceId) || {};
       if (!apPosition || !devicePosition) return;
 
-      const dxToAp = devicePosition.x - apPosition.x;
-      const dyToAp = devicePosition.y - apPosition.y;
-      const distToAp = Math.sqrt((dxToAp * dxToAp) + (dyToAp * dyToAp)) || 0.001;
-      const minApDistance = 78;
-      const maxApDistance = 148;
-
-      if (distToAp < minApDistance) {
-        const scale = minApDistance / distToAp;
-        devicePosition.x = apPosition.x + (dxToAp * scale);
-        devicePosition.y = apPosition.y + (dyToAp * scale);
-      } else if (distToAp > maxApDistance) {
-        const scale = maxApDistance / distToAp;
-        devicePosition.x = apPosition.x + (dxToAp * scale);
-        devicePosition.y = apPosition.y + (dyToAp * scale);
-      }
-
-      const dxToCenter = devicePosition.x - center.x;
-      const dyToCenter = devicePosition.y - center.y;
-      const centerDistance = Math.sqrt((dxToCenter * dxToCenter) + (dyToCenter * dyToCenter)) || 0.001;
-      const minCenterDistance = 120;
-      const maxCenterDistance = mapPowerToRadius(deviceData.power, 180, Math.max(235, Math.min(cy.width(), cy.height()) * 0.42));
-
-      if (centerDistance < minCenterDistance) {
-        const scale = minCenterDistance / centerDistance;
-        devicePosition.x = center.x + (dxToCenter * scale);
-        devicePosition.y = center.y + (dyToCenter * scale);
-      } else if (centerDistance > maxCenterDistance) {
-        const scale = maxCenterDistance / centerDistance;
-        devicePosition.x = center.x + (dxToCenter * scale);
-        devicePosition.y = center.y + (dyToCenter * scale);
+      if (devicePosition.y < apPosition.y + 110) {
+        devicePosition.y = apPosition.y + 110;
       }
     });
   }
 }
 
 function applySnapshot(snapshot) {
-  const nodes = [
-    {
-      data: {
-        id: ME_NODE_ID,
-        node_type: "me",
-        display_label: "ME",
-        width: 82,
-        height: 82,
-        power: 0,
-      },
-    },
-    ...(snapshot.elements.nodes || []),
-  ];
+  const nodes = snapshot.elements.nodes || [];
   const edges = snapshot.elements.edges || [];
   const nodeIds = new Set(nodes.map((node) => node.data.id));
   const edgeIds = new Set(edges.map((edge) => edge.data.id));
@@ -319,7 +250,7 @@ function applySnapshot(snapshot) {
   autoFitIfNeeded();
 
   liveEdges = cy.edges().toArray();
-  metaText.textContent = `${apNodes.length} access points, ${nodes.length - apNodes.length - 1} devices, ${snapshot.window_seconds}s traffic window`;
+  metaText.textContent = `${apNodes.length} access points, ${nodes.length - apNodes.length} devices, ${snapshot.window_seconds}s traffic window`;
 }
 
 function autoFitIfNeeded(force = false) {

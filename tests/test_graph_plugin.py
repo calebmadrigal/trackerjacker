@@ -4,6 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import time
 import unittest
 
 from trackerjacker.dot11_tracker import Dot11Tracker
@@ -66,9 +67,36 @@ class GraphPluginTest(unittest.TestCase):
         self.assertEqual(2, len(snapshot['elements']['nodes']))
         self.assertEqual(1, len(snapshot['elements']['edges']))
         self.assertEqual('lab-network-name-that-is-long', snapshot['elements']['nodes'][0]['data']['label'])
-        self.assertEqual('lab-network-name-...', snapshot['elements']['nodes'][0]['data']['display_label'])
+        self.assertEqual('lab-network-name-...\nUbiquiti', snapshot['elements']['nodes'][0]['data']['display_label'])
         self.assertEqual('11:22:33:44:55:66', snapshot['elements']['nodes'][1]['data']['label'])
         self.assertEqual('11:22:33:44:55:66\nApple Device Hold...', snapshot['elements']['nodes'][1]['data']['display_label'])
+
+    def test_snapshot_keeps_recent_nodes_even_when_traffic_window_has_passed(self):
+        graph_state = GraphState(traffic_window=5, stale_seconds=300, max_access_points=5, max_devices_per_ap=5)
+        dot11_map = StubMap()
+
+        frame = StubFrame('aa:bb:cc:dd:ee:ff', {'aa:bb:cc:dd:ee:ff', '11:22:33:44:55:66'}, frame_bytes=2400)
+        graph_state.update(frame, dot11_map=dot11_map)
+
+        now = time.time()
+        graph_state.access_points['aa:bb:cc:dd:ee:ff']['last_seen'] = now - 40
+        graph_state.access_points['aa:bb:cc:dd:ee:ff']['events'] = type(graph_state.access_points['aa:bb:cc:dd:ee:ff']['events'])(
+            [(now - 40, 2400)]
+        )
+        graph_state.devices['11:22:33:44:55:66']['last_seen'] = now - 40
+        graph_state.devices['11:22:33:44:55:66']['events'] = type(graph_state.devices['11:22:33:44:55:66']['events'])(
+            [(now - 40, 2400)]
+        )
+        graph_state.edges[('aa:bb:cc:dd:ee:ff', '11:22:33:44:55:66')]['last_seen'] = now - 40
+        graph_state.edges[('aa:bb:cc:dd:ee:ff', '11:22:33:44:55:66')]['events'] = type(
+            graph_state.edges[('aa:bb:cc:dd:ee:ff', '11:22:33:44:55:66')]['events']
+        )([(now - 40, 2400)])
+
+        snapshot = graph_state.snapshot()
+
+        self.assertEqual(2, len(snapshot['elements']['nodes']))
+        self.assertEqual(1, len(snapshot['elements']['edges']))
+        self.assertEqual(0, snapshot['elements']['edges'][0]['data']['traffic'])
 
     def test_dot11_tracker_can_short_circuit_for_frame_consumers(self):
         plugin = StubPlugin()

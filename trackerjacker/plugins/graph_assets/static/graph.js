@@ -99,16 +99,17 @@ function stableApOrder(apNodes) {
   });
 }
 
-function computeNewNodePositions(apNodes, edges) {
+function computeNewNodePositions(nodes, apNodes, edges) {
   const width = cy.width();
   const height = cy.height();
   const cx = width / 2;
   const cyMid = height / 2 + 10;
-  const apOrbitX = Math.max(240, width * 0.34);
-  const apOrbitY = Math.max(160, height * 0.28);
+  const apOrbitX = Math.max(170, width * 0.22);
+  const apOrbitY = Math.max(110, height * 0.18);
   const positions = {};
   const orderedAps = stableApOrder(apNodes);
   const groupedEdges = new Map();
+  const nodeById = new Map(nodes.map((node) => [node.data.id, node.data]));
 
   edges.forEach((edge) => {
     const apId = edge.data.source;
@@ -134,7 +135,7 @@ function computeNewNodePositions(apNodes, edges) {
     apEdges.forEach((edge, edgeIndex) => {
       const baseAngle = (hashString(edge.data.target) % 360) * (Math.PI / 180);
       const angleOffset = ((edgeIndex % 5) - 2) * 0.16;
-      const orbit = apRadius({ data: (key) => apNode.data[key] }) + 92 + (edgeIndex * 14);
+      const orbit = apRadius({ data: (key) => apNode.data[key] }) + 58 + (edgeIndex * 8);
       const targetPosition = {
         x: apPosition.x + Math.cos(baseAngle + angleOffset) * orbit,
         y: apPosition.y + Math.sin(baseAngle + angleOffset) * orbit,
@@ -152,11 +153,11 @@ function computeNewNodePositions(apNodes, edges) {
     });
   });
 
-  relaxDeviceOverlaps(positions, apNodes, edges);
+  relaxDeviceOverlaps(positions, nodeById, apNodes, edges);
   return positions;
 }
 
-function relaxDeviceOverlaps(positions, apNodes, edges) {
+function relaxDeviceOverlaps(positions, nodeById, apNodes, edges) {
   const apIds = new Set(apNodes.map((node) => node.data.id));
   const deviceIds = Object.keys(positions).filter((id) => !apIds.has(id));
   const deviceToAp = new Map(edges.map((edge) => [edge.data.target, edge.data.source]));
@@ -174,18 +175,23 @@ function relaxDeviceOverlaps(positions, apNodes, edges) {
 
         const dx = right.x - left.x;
         const dy = right.y - left.y;
-        const distance = Math.sqrt((dx * dx) + (dy * dy)) || 0.001;
-        const minDistance = 96;
-        if (distance >= minDistance) continue;
+        const leftNode = nodeById.get(leftId) || {};
+        const rightNode = nodeById.get(rightId) || {};
+        const minDx = (((leftNode.width || 170) + (rightNode.width || 170)) / 2) + 10;
+        const minDy = (((leftNode.height || 62) + (rightNode.height || 62)) / 2) + 10;
+        const overlapX = minDx - Math.abs(dx);
+        const overlapY = minDy - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
 
-        const push = (minDistance - distance) / 2;
-        const pushX = (dx / distance) * push;
-        const pushY = (dy / distance) * push;
-
-        left.x -= pushX;
-        left.y -= pushY;
-        right.x += pushX;
-        right.y += pushY;
+        if (overlapX < overlapY) {
+          const pushX = overlapX / 2 * (dx >= 0 ? 1 : -1);
+          left.x -= pushX;
+          right.x += pushX;
+        } else {
+          const pushY = overlapY / 2 * (dy >= 0 ? 1 : -1);
+          left.y -= pushY;
+          right.y += pushY;
+        }
       }
     }
 
@@ -198,8 +204,8 @@ function relaxDeviceOverlaps(positions, apNodes, edges) {
       const dx = devicePosition.x - apPosition.x;
       const dy = devicePosition.y - apPosition.y;
       const distance = Math.sqrt((dx * dx) + (dy * dy)) || 0.001;
-      const minOrbit = 126;
-      const maxOrbit = 320;
+      const minOrbit = 96;
+      const maxOrbit = 220;
 
       if (distance < minOrbit) {
         const scale = minOrbit / distance;
@@ -220,7 +226,7 @@ function applySnapshot(snapshot) {
   const nodeIds = new Set(nodes.map((node) => node.data.id));
   const edgeIds = new Set(edges.map((edge) => edge.data.id));
   const apNodes = nodes.filter((node) => node.data.node_type === "ap");
-  const positions = computeNewNodePositions(apNodes, edges);
+  const positions = computeNewNodePositions(nodes, apNodes, edges);
 
   cy.batch(() => {
     cy.nodes().forEach((node) => {

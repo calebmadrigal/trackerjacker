@@ -63,6 +63,17 @@ def abbreviate_text(value, max_length=20):
     return '{}...'.format(value[:max_length - 3])
 
 
+def format_ap_display_label(ssid, vendor):
+    if ssid and vendor:
+        return '{}\n{}'.format(abbreviate_text(ssid, max_length=20),
+                                abbreviate_text(vendor, max_length=20))
+    if ssid:
+        return abbreviate_text(ssid, max_length=20)
+    if vendor:
+        return abbreviate_text(vendor, max_length=20)
+    return 'Unknown'
+
+
 class GraphState:
     def __init__(self, traffic_window=20, stale_seconds=300, max_access_points=50, max_devices_per_ap=100):
         self.traffic_window = float(traffic_window)
@@ -157,8 +168,8 @@ class GraphState:
                 for bssid, ap_state in self.access_points.items()
             }
             top_aps = sorted(
-                (bssid for bssid, score in ap_scores.items() if score > 0),
-                key=lambda bssid: ap_scores[bssid],
+                self.access_points.keys(),
+                key=lambda bssid: (ap_scores.get(bssid, 0), self.access_points[bssid]['last_seen']),
                 reverse=True,
             )[:self.max_access_points]
 
@@ -170,11 +181,12 @@ class GraphState:
                     if edge_state['source'] != bssid:
                         continue
                     edge_score = score_events(edge_state['events'], now, self.traffic_window)
-                    if edge_score <= 0:
-                        continue
                     bssid_edges.append((edge_score, edge_state))
 
-                for edge_score, edge_state in sorted(bssid_edges, key=lambda item: item[0], reverse=True)[:self.max_devices_per_ap]:
+                for edge_score, edge_state in sorted(
+                        bssid_edges,
+                        key=lambda item: (item[0], item[1]['last_seen']),
+                        reverse=True)[:self.max_devices_per_ap]:
                     selected_device_ids.add(edge_state['target'])
                     edge_payloads.append({
                         'data': {
@@ -193,14 +205,14 @@ class GraphState:
                         'id': bssid,
                         'node_type': 'ap',
                         'label': format_label(ap_state.get('ssid'), ap_state.get('vendor')),
-                        'display_label': abbreviate_text(format_label(ap_state.get('ssid'), ap_state.get('vendor'))),
+                        'display_label': format_ap_display_label(ap_state.get('ssid'), ap_state.get('vendor')),
                         'subtitle': bssid,
                         'traffic': ap_scores.get(bssid, 0),
                         'power': ap_state.get('power') or -100,
                         'channels': ', '.join(str(channel) for channel in ap_state.get('channels', ())),
                         'size': clamp(70 + (ap_scores.get(bssid, 0) / 25000.0), 70, 150),
-                        'width': clamp(128 + len(abbreviate_text(format_label(ap_state.get('ssid'), ap_state.get('vendor')))) * 3, 128, 210),
-                        'height': 72,
+                        'width': 188,
+                        'height': 84,
                     }
                 })
 

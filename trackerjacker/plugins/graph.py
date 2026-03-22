@@ -64,7 +64,7 @@ def abbreviate_text(value, max_length=20):
 
 
 class GraphState:
-    def __init__(self, traffic_window=20, stale_seconds=45, max_access_points=8, max_devices_per_ap=6):
+    def __init__(self, traffic_window=20, stale_seconds=300, max_access_points=50, max_devices_per_ap=100):
         self.traffic_window = float(traffic_window)
         self.stale_seconds = float(stale_seconds)
         self.max_access_points = int(max_access_points)

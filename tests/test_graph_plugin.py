@@ -29,7 +29,7 @@ class StubFrame:
 class StubMap:
     def __init__(self):
         self.ap_nodes = {
-            'aa:bb:cc:dd:ee:ff': {'ssid': 'lab-network-name-that-is-long', 'vendor': 'Ubiquiti', 'channels': {6}},
+            'aa:bb:cc:dd:ee:ff': {'ssid': 'lab-network-name-that-is-long', 'vendor': 'Ubiquiti', 'channels': {6, 44}},
         }
         self.dev_nodes = {
             '11:22:33:44:55:66': {'vendor': 'Apple Device Holdings Incorporated', 'signal': -45},
@@ -67,9 +67,11 @@ class GraphPluginTest(unittest.TestCase):
         self.assertEqual(2, len(snapshot['elements']['nodes']))
         self.assertEqual(1, len(snapshot['elements']['edges']))
         self.assertEqual('lab-network-name-that-is-long', snapshot['elements']['nodes'][0]['data']['label'])
-        self.assertEqual('lab-network-name-...\nUbiquiti', snapshot['elements']['nodes'][0]['data']['display_label'])
+        self.assertEqual('lab-network-name-...\nUbiquiti\naa:bb:cc:dd:ee:ff\nChannels: 6, 44\nPower: -45 dBm',
+                         snapshot['elements']['nodes'][0]['data']['display_label'])
         self.assertEqual('11:22:33:44:55:66', snapshot['elements']['nodes'][1]['data']['label'])
-        self.assertEqual('11:22:33:44:55:66\nApple Device Hold...', snapshot['elements']['nodes'][1]['data']['display_label'])
+        self.assertEqual('11:22:33:44:55:66\nApple Device Hold...\nPower: -45 dBm',
+                         snapshot['elements']['nodes'][1]['data']['display_label'])
 
     def test_snapshot_keeps_recent_nodes_even_when_traffic_window_has_passed(self):
         graph_state = GraphState(traffic_window=5, stale_seconds=300, max_access_points=5, max_devices_per_ap=5)
@@ -97,6 +99,21 @@ class GraphPluginTest(unittest.TestCase):
         self.assertEqual(2, len(snapshot['elements']['nodes']))
         self.assertEqual(1, len(snapshot['elements']['edges']))
         self.assertEqual(0, snapshot['elements']['edges'][0]['data']['traffic'])
+
+    def test_graph_state_normalizes_mac_addresses_to_avoid_duplicates(self):
+        graph_state = GraphState(traffic_window=30, max_access_points=5, max_devices_per_ap=5)
+        dot11_map = StubMap()
+
+        upper_frame = StubFrame('AA:BB:CC:DD:EE:FF', {'AA:BB:CC:DD:EE:FF', '11:22:33:44:55:66'})
+        lower_frame = StubFrame('aa:bb:cc:dd:ee:ff', {'aa:bb:cc:dd:ee:ff', '11:22:33:44:55:66'})
+
+        graph_state.update(upper_frame, dot11_map=dot11_map)
+        graph_state.update(lower_frame, dot11_map=dot11_map)
+        snapshot = graph_state.snapshot()
+
+        self.assertEqual(2, len(snapshot['elements']['nodes']))
+        self.assertEqual({'aa:bb:cc:dd:ee:ff', '11:22:33:44:55:66'},
+                         {node['data']['id'] for node in snapshot['elements']['nodes']})
 
     def test_dot11_tracker_can_short_circuit_for_frame_consumers(self):
         plugin = StubPlugin()

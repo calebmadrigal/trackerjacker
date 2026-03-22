@@ -33,6 +33,10 @@ def clamp(value, min_value, max_value):
     return max(min_value, min(max_value, value))
 
 
+def normalize_mac(mac):
+    return mac.lower() if isinstance(mac, str) else mac
+
+
 def score_events(events, now, window):
     cutoff = now - window
     while events and events[0][0] < cutoff:
@@ -73,6 +77,18 @@ def format_ap_display_label(ssid, vendor):
     return 'Unknown'
 
 
+def format_power(power):
+    if power is None:
+        return 'Power: ? dBm'
+    return 'Power: {} dBm'.format(int(power))
+
+
+def format_channels(channels):
+    if not channels:
+        return 'Channels: ?'
+    return 'Channels: {}'.format(', '.join(str(channel) for channel in channels))
+
+
 class GraphState:
     def __init__(self, traffic_window=20, stale_seconds=300, max_access_points=50, max_devices_per_ap=100):
         self.traffic_window = float(traffic_window)
@@ -91,21 +107,24 @@ class GraphState:
             self.seq += 1
             self._prune(now)
 
-            if frame.bssid and frame.bssid not in MACS_TO_IGNORE:
+            normalized_bssid = normalize_mac(frame.bssid)
+            if normalized_bssid and normalized_bssid not in MACS_TO_IGNORE:
                 self._update_access_point(frame, dot11_map, now)
 
-            if frame.frame_type_name() != 'data' or not frame.bssid:
+            if frame.frame_type_name() != 'data' or not normalized_bssid:
                 return
 
-            connected_devices = sorted(frame.macs - MACS_TO_IGNORE - {frame.bssid})
+            normalized_macs = {normalize_mac(mac) for mac in frame.macs if mac}
+            connected_devices = sorted(normalized_macs - MACS_TO_IGNORE - {normalized_bssid})
             for mac in connected_devices:
                 self._update_device(frame, mac, dot11_map, now)
                 self._update_edge(frame, mac, now)
 
     def _update_access_point(self, frame, dot11_map, now):
-        ap_node = dot11_map.get_ap_by_bssid(frame.bssid) if dot11_map else None
-        ap_state = self.access_points.setdefault(frame.bssid, {
-            'bssid': frame.bssid,
+        bssid = normalize_mac(frame.bssid)
+        ap_node = dot11_map.get_ap_by_bssid(bssid) if dot11_map else None
+        ap_state = self.access_points.setdefault(bssid, {
+            'bssid': bssid,
             'ssid': None,
             'vendor': None,
             'power': -100,
@@ -141,9 +160,10 @@ class GraphState:
         dev_state['events'].append((now, frame.frame_bytes))
 
     def _update_edge(self, frame, mac, now):
-        edge_key = (frame.bssid, mac)
+        bssid = normalize_mac(frame.bssid)
+        edge_key = (bssid, mac)
         edge_state = self.edges.setdefault(edge_key, {
-            'source': frame.bssid,
+            'source': bssid,
             'target': mac,
             'events': deque(),
             'last_seen': now,
@@ -204,14 +224,19 @@ class GraphState:
                         'id': bssid,
                         'node_type': 'ap',
                         'label': format_label(ap_state.get('ssid'), ap_state.get('vendor')),
-                        'display_label': format_ap_display_label(ap_state.get('ssid'), ap_state.get('vendor')),
+                        'display_label': '{}\n{}\n{}\n{}'.format(
+                            format_ap_display_label(ap_state.get('ssid'), ap_state.get('vendor')),
+                            abbreviate_text(ap_state.get('bssid'), max_length=20),
+                            abbreviate_text(format_channels(ap_state.get('channels', ())), max_length=20),
+                            abbreviate_text(format_power(ap_state.get('power')), max_length=20),
+                        ),
                         'subtitle': bssid,
                         'traffic': ap_scores.get(bssid, 0),
                         'power': ap_state.get('power') or -100,
                         'channels': ', '.join(str(channel) for channel in ap_state.get('channels', ())),
                         'size': clamp(70 + (ap_scores.get(bssid, 0) / 25000.0), 70, 150),
-                        'width': 188,
-                        'height': 84,
+                        'width': 196,
+                        'height': 116,
                     }
                 })
 
@@ -227,14 +252,17 @@ class GraphState:
                         'label': mac,
                         'display_label': '{}\n{}'.format(
                             abbreviate_text(mac, max_length=20),
-                            abbreviate_text(dev_state.get('vendor') or 'Unknown', max_length=20),
+                            '{}\n{}'.format(
+                                abbreviate_text(dev_state.get('vendor') or 'Unknown', max_length=20),
+                                abbreviate_text(format_power(dev_state.get('power')), max_length=20),
+                            ),
                         ),
                         'subtitle': mac,
                         'traffic': dev_score,
                         'power': dev_state.get('power') or -100,
                         'size': clamp(28 + ((dev_state.get('power') or -100) + 100) * 0.95, 24, 78),
                         'width': 170,
-                        'height': clamp(44 + ((dev_state.get('power') or -100) + 100) * 0.33, 44, 82),
+                        'height': clamp(62 + ((dev_state.get('power') or -100) + 100) * 0.24, 62, 92),
                     }
                 })
 
